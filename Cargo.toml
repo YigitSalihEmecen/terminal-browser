@@ -25,5 +25,5 @@ tempfile = "3"
 [profile.release]
 lto = "thin"
 codegen-units = 4
-panic = "abort"
+# (no panic = "abort": a panic in one client's session task must not take the whole server down)
 strip = true

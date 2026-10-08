@@ -27,7 +27,7 @@ crates/server  glyph-server  Chromium launch, CDP client, snapshot→grid render
                              profiles, tabs/sessions, WebSocket server (auth, TLS), metrics
 crates/client  glyph-client  ratatui/crossterm TUI, modes, keymap, hints, omnibox, find,
                              selection/OSC 52, graphics protocols, connection (channel or WS)
-crates/glyph   glyph         the binary: `local` | `serve` | `connect` | `bench-*` helpers
+crates/glyph   glyph         the binary: `local` | `serve` | `connect` | `bench` | `config` | `render` | `dump`
 ```
 
 `local` wires client and server in one process through `tokio::sync::mpsc` carrying the

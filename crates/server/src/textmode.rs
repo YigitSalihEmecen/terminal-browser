@@ -314,11 +314,31 @@ impl<'a> Builder<'a> {
         }
         self.budget = self.budget.saturating_sub(text.len());
         let attrs = Attrs(ctx.attrs.0 | attrs.0);
+        // plain text right after a form control (`[____]text`) needs a blank to stay readable
+        let region = region.or(self.link);
+        if region.is_none() && !text.starts_with(char::is_whitespace) {
+            let after_control = self.cur.last().is_some_and(|p| {
+                !p.text.ends_with(char::is_whitespace)
+                    && p.region.is_some_and(|r| {
+                        self.regions
+                            .get(r)
+                            .is_some_and(|r| r.kind != RegionKind::Link)
+                    })
+            });
+            if after_control {
+                self.cur.push(Span {
+                    text: " ".into(),
+                    fg,
+                    attrs: Attrs::default(),
+                    region: None,
+                });
+            }
+        }
         self.cur.push(Span {
             text: text.to_owned(),
             fg,
             attrs,
-            region: region.or(self.link),
+            region,
         });
     }
 
@@ -1260,6 +1280,32 @@ mod tests {
         let r = &regions[0].rects[0];
         assert_eq!(g.cell(r.x, r.y).style.link, regions[0].id);
         assert_eq!(g.cell(r.x, r.y).g, "h");
+    }
+
+    #[test]
+    fn text_after_a_control_gets_a_blank_but_links_do_not_add_spaces_inside_words() {
+        let mut field = mk("3", "textbox", "", &[], &[]);
+        field.value = Some(AxValue {
+            value: Some(Value::String("ab".into())),
+        });
+        let t = AxTree {
+            nodes: vec![
+                mk("1", "RootWebArea", "", &["2"], &[]),
+                mk("2", "paragraph", "", &["3", "4", "5", "7"], &[]),
+                field,
+                mk("4", "StaticText", "typed", &[], &[]),
+                mk("5", "link", "x", &["6"], &[("url", "https://x.org/")]),
+                mk("6", "StaticText", "link", &[], &[]),
+                mk("7", "StaticText", "s", &[], &[]),
+            ],
+        };
+        let text = build(&t, &HashMap::new(), 60)
+            .slice(0, 3, None)
+            .0
+            .dump_text();
+        assert!(text.contains("] typed"), "{text}");
+        // a link ends and plain text continues without inventing a gap inside a word ("link" + "s")
+        assert!(text.contains("linkS") || text.contains("links"), "{text}");
     }
 
     #[test]
