@@ -1,0 +1,16 @@
+[package]
+name = "glyph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "glyph: a remote-capable terminal web browser"
+
+[[bin]]
+name = "glyph"
+path = "src/main.rs"
+
+[dependencies]
+glyph-server.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+clap = { version = "4", features = ["derive"] }

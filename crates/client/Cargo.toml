@@ -1,0 +1,8 @@
+[package]
+name = "glyph-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Terminal UI client for glyph"
+
+[dependencies]

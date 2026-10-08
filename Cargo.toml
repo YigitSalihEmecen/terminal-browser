@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/proto", "crates/server", "crates/client", "crates/glyph"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.80"
+
+[workspace.dependencies]
+glyph-proto = { path = "crates/proto" }
+glyph-server = { path = "crates/server" }
+glyph-client = { path = "crates/client" }
+anyhow = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "net", "io-util", "fs", "signal"] }
+tokio-tungstenite = "0.30"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+tracing = "0.1"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+panic = "abort"
+strip = true

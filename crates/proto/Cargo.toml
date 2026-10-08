@@ -1,0 +1,8 @@
+[package]
+name = "glyph-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared cell model, grid diffing and wire protocol for glyph"
+
+[dependencies]
