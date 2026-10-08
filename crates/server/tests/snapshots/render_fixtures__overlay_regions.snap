@@ -1,0 +1,5 @@
+---
+source: crates/server/tests/render_fixtures.rs
+expression: regions
+---
+#1 Link [CellRect { x: 12, y: 5, w: 7, h: 1 }] Some("http://127.0.0.1:52022/ok") "Confirm"

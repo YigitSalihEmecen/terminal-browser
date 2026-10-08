@@ -1,0 +1,34 @@
+---
+source: crates/server/tests/render_fixtures.rs
+expression: styles(& r.grid)
+---
+r00 blank x1
+r01 [#222222 #ffffff ]" " [#000000 #ffffff ]"Background line one that runs rather long across the page and should be covered                    "
+r02 blank x1
+r03 [#222222 #ffffff ]" " [#000000 #ffffff ]"Backgroun" [#222222 #202133 ]"                                        " [#000000 #ffffff ]"the page and should be covered                    "
+r04 [#222222 #ffffff ]"          " [#222222 #202133 ]"  " [#ffffff #202133 ]"Modal dialog" [#222222 #fffdff ]" " [#222222 #202133 ]"                         " [#222222 #ffffff ]"                                                  "
+r05 [#222222 #ffffff ]" " [#000000 #ffffff ]"Backgroun" [#222222 #202133 ]"  " [#88ccff #202133 U L1]"Con" [#88ccff #2c3850 U L1]"f" [#88ccff #202133 U L1]"irm" [#222222 #1c3752 ]" " [#222222 #202133 ]"                              " [#000000 #ffffff ]"s the page and stays visible                      "
+r06 blank x3
+r07 blank x3
+r08 [#222222 #ffffff ]" " [#000000 #ffffff ]"Backgroun" [#222222 #202133 ]"                                        " [#222222 #ffffff ]"                                                  "
+r09 blank x3
+r10 blank x1
+r11 blank x1
+r12 blank x1
+r13 blank x1
+r14 blank x1
+r15 blank x1
+r16 blank x1
+r17 blank x1
+r18 blank x1
+r19 blank x1
+r20 blank x1
+r21 blank x1
+r22 blank x1
+r23 blank x1
+r24 blank x1
+r25 blank x1
+r26 blank x1
+r27 blank x1
+r28 blank x1
+r29 blank x1

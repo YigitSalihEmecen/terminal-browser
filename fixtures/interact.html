@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8"><title>Interact</title>
+<style>body{margin:8px;font:16px/16px monospace}.spacer{height:1200px}#out{color:#080}</style>
+<p><a id="go" href="/basic.html">go to basic</a> <button id="btn" onclick="document.getElementById('out').textContent='clicked '+(++window.n||(window.n=1))">press</button></p>
+<p>Type: <input id="in" type="text" size="20"> <span id="out">idle</span></p>
+<p><a href="/form.html" target="_blank">open form in new tab</a></p>
+<div class="spacer"></div>
+<p id="bottom">THE BOTTOM</p>
+<script>document.getElementById('in').addEventListener('input',e=>{document.getElementById('out').textContent='typed:'+e.target.value})</script>

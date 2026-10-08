@@ -34,6 +34,7 @@ const BASE_FLAGS: &[&str] = &[
     "--no-default-browser-check",
     "--mute-audio",
     "--hide-scrollbars",
+    "--disable-smooth-scrolling",
     "--force-color-profile=srgb",
     "--password-store=basic",
     "--use-mock-keychain",
@@ -188,6 +189,11 @@ impl Browser {
             .call_raw(None, "Target.closeTarget", json!({ "targetId": target_id }))
             .await
             .map(|_| ())
+    }
+
+    /// Ask Chromium to exit (the process is also killed when `Browser` drops).
+    pub async fn close(&self) {
+        let _ = self.cdp.call_raw(None, "Browser.close", json!({})).await;
     }
 
     pub async fn shutdown(mut self) {

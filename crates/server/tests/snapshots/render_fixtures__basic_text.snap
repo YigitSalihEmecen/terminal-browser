@@ -1,0 +1,15 @@
+---
+source: crates/server/tests/render_fixtures.rs
+expression: r.grid.dump_text()
+---
+
+ Hello glyph
+
+ A paragraph with bold, italic, underline, struck and a link.
+
+    • First item
+    • Second item with another link
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+ Dim footer text

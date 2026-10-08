@@ -1,0 +1,9 @@
+---
+source: crates/server/tests/render_fixtures.rs
+expression: r.grid.dump_text()
+---
+ ASCII: abc
+ CJK: 日本語の文章 中文 한국어
+ Emoji: 😀 👍🏽 🇦🇹 👨‍👩‍👧
+ Combining: é ñ ö
+ Box: ┌──┐ │██│ └──┘

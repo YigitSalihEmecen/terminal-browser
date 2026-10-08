@@ -1,0 +1,34 @@
+---
+source: crates/server/tests/render_fixtures.rs
+expression: styles(& r.grid)
+---
+r00 blank x1
+r01 [#222222 #ffffff ]" " [#444444 #ffffff ]"┌────────────────────────────────────────────────────┐                                             "
+r02 [#222222 #ffffff ]" " [#444444 #ffffff ]"│ " [#000000 #ffffff ]"Card with a border and some text inside.           " [#444444 #ffffff ]"│                                             "
+r03 [#222222 #ffffff ]" " [#444444 #ffffff ]"└────────────────────────────────────────────────────┘                                             "
+r04 blank x1
+r05 [#222222 #ffffff ]" " [#0077aa #ffffff ]"╭────────────────────────────────────────╮                                                         "
+r06 [#222222 #ffffff ]" " [#0077aa #ffffff ]"│ " [#000000 #ffffff ]"Rounded box                            " [#0077aa #ffffff ]"│                                                         "
+r07 [#222222 #ffffff ]" " [#0077aa #ffffff ]"╰────────────────────────────────────────╯                                                         "
+r08 blank x1
+r09 [#222222 #ffffff ]" " [#bfd5df #0965be ]"▀" [#222222 #ffffff ]"        " [#222222 #0462d3 ]" " [#c3d3e7 #0266ca ]"▀" [#222222 #ffffff ]"                                                                                        "
+r10 [#222222 #ffffff ]" " [#222222 #0965be ]"  " [#ffffff #0965be ]"Button   " [#222222 #ffffff ]"                                                                                        "
+r11 [#222222 #ffffff ]" " [#468dd0 #fcfefc ]"▀" [#3c8fdc #fcfefc ]"▀" [#3c8fdd #fdfefc ]"▀" [#3b8fdd #fdfefc ]"▀" [#3c8fde #fdfefc ]"▀" [#3c8edc #fdfefc ]"▀" [#3d8edb #fdfefc ]"▀" [#3d8edc #fdfefc ]"▀" [#3c8fdc #fdfefc ]"▀" [#3c8fdd #fdfefc ]"▀▀                                                                                        "
+r12 [#222222 #ffffff ]" " [#000000 #ffffff ]"┌────┐                                                                                             "
+r13 [#222222 #ffffff ]" " [#000000 #ffffff ]"│" [#000000 #ffffff B]"A" [#000000 #ffffff ]"  " [#000000 #ffffff B]"B" [#000000 #ffffff ]"│                                                                                             "
+r14 [#222222 #ffffff ]" " [#000000 #ffffff ]"│    │                                                                                             "
+r15 [#222222 #ffffff ]" " [#000000 #ffffff ]"└1──2┘                                                                                             "
+r16 blank x1
+r17 blank x1
+r18 blank x1
+r19 blank x1
+r20 blank x1
+r21 blank x1
+r22 blank x1
+r23 blank x1
+r24 blank x1
+r25 blank x1
+r26 blank x1
+r27 blank x1
+r28 blank x1
+r29 blank x1

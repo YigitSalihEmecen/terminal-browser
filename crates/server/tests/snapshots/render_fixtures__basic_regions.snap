@@ -1,0 +1,6 @@
+---
+source: crates/server/tests/render_fixtures.rs
+expression: regions
+---
+#1 Link [CellRect { x: 56, y: 3, w: 4, h: 1 }] Some("http://127.0.0.1:52022/next") "link"
+#2 Link [CellRect { x: 23, y: 6, w: 12, h: 1 }] Some("https://example.org/") "another link"

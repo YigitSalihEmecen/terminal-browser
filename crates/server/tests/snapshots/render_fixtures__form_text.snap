@@ -1,0 +1,18 @@
+---
+source: crates/server/tests/render_fixtures.rs
+expression: r.grid.dump_text()
+---
+
+ Name  [Ada______________]
+ Search  [type here         ]
+
+ [x] Subscribe
+
+ (•) One  ( ) Two
+
+        ┌───────────────────────────────┐
+        │first line                     │
+ Notes  └───────────────────────────────┘
+ Pick  [Beta ▾]
+
+  Submit

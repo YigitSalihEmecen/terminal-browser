@@ -1,0 +1,13 @@
+---
+source: crates/server/tests/render_fixtures.rs
+expression: r.grid.dump_text()
+---
+
+ Background line one that runs rather long across the page and should be covered
+
+ Backgroun                                        the page and should be covered
+            Modal dialog
+ Backgroun  Confirm                               s the page and stays visible
+
+
+ Backgroun

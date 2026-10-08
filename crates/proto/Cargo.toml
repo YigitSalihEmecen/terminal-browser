@@ -6,3 +6,11 @@ license.workspace = true
 description = "Shared cell model, grid diffing and wire protocol for glyph"
 
 [dependencies]
+serde.workspace = true
+smol_str = { version = "0.3", features = ["serde"] }
+unicode-width = "0.2"
+unicode-segmentation = "1"
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest = "1"

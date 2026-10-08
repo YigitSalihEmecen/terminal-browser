@@ -1,0 +1,12 @@
+---
+source: crates/server/tests/render_fixtures.rs
+expression: regions
+---
+#1 Input [CellRect { x: 7, y: 1, w: 19, h: 1 }] None "Ada"
+#2 Input [CellRect { x: 9, y: 2, w: 20, h: 1 }] None "type here"
+#3 Checkbox [CellRect { x: 1, y: 4, w: 3, h: 1 }] None ""
+#4 Radio [CellRect { x: 1, y: 6, w: 3, h: 1 }] None ""
+#5 Radio [CellRect { x: 10, y: 6, w: 3, h: 1 }] None ""
+#6 TextArea [CellRect { x: 9, y: 9, w: 10, h: 1 }] None ""
+#7 Select [CellRect { x: 7, y: 11, w: 8, h: 1 }] None ""
+#8 Button [CellRect { x: 2, y: 13, w: 6, h: 1 }] None "Submit"
