@@ -8,6 +8,7 @@ pub mod hints;
 pub mod keymap;
 pub mod omnibox;
 pub mod osc52;
+pub mod remote;
 pub mod term;
 pub mod ui;
 

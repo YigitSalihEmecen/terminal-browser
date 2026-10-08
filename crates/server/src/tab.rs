@@ -17,7 +17,7 @@ use crate::{
     cdp::{Event, Session},
     keys::{cdp_mods, key_events},
     pixmap::Pixmap,
-    profile::ProfileCfg,
+    profile::{ProfileCfg, Verdict},
     render::{render, Metrics, PageInfo, Rendered},
     snapshot::SnapshotResult,
     textmode::{self, AxTree, TextDoc},
@@ -145,7 +145,24 @@ pub fn spawn(
     start_url: Option<String>,
 ) -> TabHandle {
     let (tx, cmds) = tokio::sync::mpsc::unbounded_channel();
-    let events = sess.events();
+    // Paused requests are answered by their own task. If the tab loop did it, `Page.navigate`
+    // (which cannot return until its Document request is resolved) would deadlock the loop that
+    // is waiting for it.
+    let events = {
+        let mut raw = sess.events();
+        let (fwd_tx, fwd_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (psess, profile, wants_images) = (sess.clone(), cfg.profile.clone(), cfg.caps.images);
+        tokio::spawn(async move {
+            while let Some(e) = raw.recv().await {
+                if e.method == "Fetch.requestPaused" {
+                    answer_paused(&psess, &profile, wants_images, &e).await;
+                } else if fwd_tx.send(e).is_err() {
+                    break;
+                }
+            }
+        });
+        fwd_rx
+    };
     let m = Metrics {
         cols: cfg.caps.cols.max(1),
         rows: cfg.caps.rows.max(1),
@@ -188,6 +205,35 @@ pub fn spawn(
         }
     });
     TabHandle { id, tx }
+}
+
+async fn answer_paused(sess: &Session, profile: &ProfileCfg, wants_images: bool, e: &Event) {
+    #[derive(Deserialize)]
+    struct P {
+        #[serde(rename = "requestId")]
+        id: String,
+        #[serde(rename = "resourceType")]
+        ty: String,
+        request: Req,
+    }
+    #[derive(Deserialize)]
+    struct Req {
+        url: String,
+    }
+    let Ok(p) = e.parse::<P>() else { return };
+    let _ = match profile.verdict(&p.ty, &p.request.url, wants_images) {
+        Verdict::Continue => {
+            sess.send("Fetch.continueRequest", json!({ "requestId": p.id }))
+                .await
+        }
+        Verdict::Fail => {
+            sess.send(
+                "Fetch.failRequest",
+                json!({ "requestId": p.id, "errorReason": "BlockedByClient" }),
+            )
+            .await
+        }
+    };
 }
 
 #[derive(Deserialize, Default)]
@@ -570,32 +616,6 @@ impl Tab {
                 if let Ok(b) = e.parse::<B>() {
                     if let Ok(m) = serde_json::from_str::<AgentMsg>(&b.payload) {
                         self.on_agent(m);
-                    }
-                }
-            }
-            "Fetch.requestPaused" => {
-                #[derive(Deserialize)]
-                struct P {
-                    #[serde(rename = "requestId")]
-                    id: String,
-                    #[serde(rename = "resourceType")]
-                    ty: String,
-                }
-                if let Ok(p) = e.parse::<P>() {
-                    // domain patterns also match top-level navigations: never block those
-                    if p.ty == "Document" {
-                        let _ = self
-                            .sess
-                            .send("Fetch.continueRequest", json!({ "requestId": p.id }))
-                            .await;
-                    } else {
-                        let _ = self
-                            .sess
-                            .send(
-                                "Fetch.failRequest",
-                                json!({ "requestId": p.id, "errorReason": "BlockedByClient" }),
-                            )
-                            .await;
                     }
                 }
             }

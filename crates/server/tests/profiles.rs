@@ -22,52 +22,65 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
 }
 
-async fn drain_until(
-    rx: &mut tokio::sync::mpsc::UnboundedReceiver<ServerMsg>,
-    tx: &tokio::sync::mpsc::UnboundedSender<ClientMsg>,
-    mut pred: impl FnMut(&Grid, &[TabInfo]) -> bool,
-) {
-    let mut grid: Option<Grid> = None;
-    let mut tabs = vec![];
-    let r = timeout(Duration::from_secs(20), async {
-        loop {
-            let Some(m) = rx.recv().await else {
-                panic!("closed")
-            };
-            match m {
-                ServerMsg::FullFrame {
-                    tab,
-                    seq,
-                    cols,
-                    rows,
-                    runs,
-                } => {
-                    let mut g = Grid::new(cols, rows, Style::default());
-                    apply_runs(&mut g, &runs);
-                    grid = Some(g);
-                    let _ = tx.send(ClientMsg::Ack { tab, seq });
+/// What a client would be showing. Kept across calls: diffs are relative to earlier frames.
+#[derive(Default)]
+struct Screen {
+    grid: Option<Grid>,
+    tabs: Vec<TabInfo>,
+}
+
+impl Screen {
+    async fn until(
+        &mut self,
+        h: &mut glyph_server::SessionHandle,
+        mut pred: impl FnMut(&Grid, &[TabInfo]) -> bool,
+    ) {
+        let r = timeout(Duration::from_secs(20), async {
+            loop {
+                if let Some(g) = &self.grid {
+                    if pred(g, &self.tabs) {
+                        return;
+                    }
                 }
-                ServerMsg::Diff { tab, seq, runs, .. } => {
-                    apply_runs(grid.as_mut().unwrap(), &runs);
-                    let _ = tx.send(ClientMsg::Ack { tab, seq });
+                let Some(m) = h.rx.recv().await else {
+                    panic!("session closed")
+                };
+                match m {
+                    ServerMsg::FullFrame {
+                        tab,
+                        seq,
+                        cols,
+                        rows,
+                        runs,
+                    } => {
+                        let mut g = Grid::new(cols, rows, Style::default());
+                        apply_runs(&mut g, &runs);
+                        self.grid = Some(g);
+                        let _ = h.tx.send(ClientMsg::Ack { tab, seq });
+                    }
+                    ServerMsg::Diff { tab, seq, runs, .. } => {
+                        apply_runs(
+                            self.grid.as_mut().expect("diff before any full frame"),
+                            &runs,
+                        );
+                        let _ = h.tx.send(ClientMsg::Ack { tab, seq });
+                    }
+                    ServerMsg::Tabs { tabs, .. } => self.tabs = tabs,
+                    ServerMsg::Error(e) => panic!("{e}"),
+                    _ => {}
                 }
-                ServerMsg::Tabs { tabs: t, .. } => tabs = t,
-                ServerMsg::Error(e) => panic!("{e}"),
-                _ => {}
             }
-            if let Some(g) = &grid {
-                if pred(g, &tabs) {
-                    return;
-                }
-            }
-        }
-    })
-    .await;
-    assert!(
-        r.is_ok(),
-        "timed out; screen:\n{}",
-        grid.map(|g| g.dump_text()).unwrap_or_default()
-    );
+        })
+        .await;
+        assert!(
+            r.is_ok(),
+            "timed out; screen:\n{}",
+            self.grid
+                .as_ref()
+                .map(|g| g.dump_text())
+                .unwrap_or_default()
+        );
+    }
 }
 
 async fn pages(s: &Server) -> usize {
@@ -95,14 +108,14 @@ async fn requests_for(profile: Profile, images: bool) -> Vec<String> {
     .await
     .unwrap();
     let mut h = srv.open_session(caps(images));
+    let mut screen = Screen::default();
     h.tx.send(ClientMsg::Navigate {
         url: format!("http://{addr}/assets.html"),
     })
     .unwrap();
-    drain_until(&mut h.rx, &h.tx, |g, _| {
-        g.dump_text().contains("Assets page")
-    })
-    .await;
+    screen
+        .until(&mut h, |g, _| g.dump_text().contains("Assets page"))
+        .await;
     tokio::time::sleep(Duration::from_millis(800)).await; // let subresources settle
     let l = log.lock().unwrap().clone();
     srv.browser.close().await;
@@ -164,22 +177,21 @@ async fn background_tabs_are_discarded_then_revived_on_activation() {
     .unwrap();
     let base = pages(&srv).await; // Chromium's own launch tab
     let mut h = srv.open_session(caps(false));
+    let mut screen = Screen::default();
     h.tx.send(ClientMsg::Navigate {
         url: format!("http://{addr}/basic.html"),
     })
     .unwrap();
-    drain_until(&mut h.rx, &h.tx, |g, _| {
-        g.dump_text().contains("Hello glyph")
-    })
-    .await;
+    screen
+        .until(&mut h, |g, _| g.dump_text().contains("Hello glyph"))
+        .await;
     h.tx.send(ClientMsg::NewTab {
         url: Some(format!("http://{addr}/unicode.html")),
     })
     .unwrap();
-    drain_until(&mut h.rx, &h.tx, |g, t| {
-        t.len() == 2 && g.dump_text().contains("CJK")
-    })
-    .await;
+    screen
+        .until(&mut h, |g, t| t.len() == 2 && g.dump_text().contains("CJK"))
+        .await;
     let first = 1u32;
 
     assert_eq!(pages(&srv).await, base + 2);
@@ -191,10 +203,9 @@ async fn background_tabs_are_discarded_then_revived_on_activation() {
     );
 
     h.tx.send(ClientMsg::SwitchTab(first)).unwrap();
-    drain_until(&mut h.rx, &h.tx, |g, _| {
-        g.dump_text().contains("Hello glyph")
-    })
-    .await;
+    screen
+        .until(&mut h, |g, _| g.dump_text().contains("Hello glyph"))
+        .await;
     assert_eq!(pages(&srv).await, base + 2, "revived into a fresh target");
     srv.browser.close().await;
 }
@@ -208,14 +219,14 @@ async fn metrics_see_the_chromium_process_tree_and_count_frames() {
     let addr = testserver::serve_dir(fixtures()).await.unwrap();
     let srv = Server::start(ServerCfg::default()).await.unwrap();
     let mut h = srv.open_session(caps(false));
+    let mut screen = Screen::default();
     h.tx.send(ClientMsg::Navigate {
         url: format!("http://{addr}/basic.html"),
     })
     .unwrap();
-    drain_until(&mut h.rx, &h.tx, |g, _| {
-        g.dump_text().contains("Hello glyph")
-    })
-    .await;
+    screen
+        .until(&mut h, |g, _| g.dump_text().contains("Hello glyph"))
+        .await;
 
     let pid = srv.browser.pid().expect("pid");
     let s = glyph_server::metrics::sample_tree(pid).expect("ps sample");
@@ -228,5 +239,64 @@ async fn metrics_see_the_chromium_process_tree_and_count_frames() {
     let m = srv.metrics.snapshot();
     assert!(m.frames_full >= 1 && m.msgs >= m.frames_full, "{m:?}");
     assert!(m.refreshes >= 1 && m.avg_refresh_ms > 0.0, "{m:?}");
+    srv.browser.close().await;
+}
+
+#[tokio::test]
+async fn private_network_guard_blocks_without_deadlocking_and_trackers_stay_navigable() {
+    if find_chrome(None).is_err() {
+        eprintln!("SKIP: no Chromium available");
+        return;
+    }
+    let (addr, log) = testserver::serve_dir_logged(fixtures()).await.unwrap();
+    let srv = Server::start(ServerCfg {
+        profile: Profile::Lean,
+        block_private: true,
+        chrome_args: vec![
+            "--host-resolver-rules=MAP segment.com 127.0.0.1, MAP public.test 127.0.0.1".into(),
+        ],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let mut h = srv.open_session(caps(false));
+    let mut screen = Screen::default();
+
+    // a loopback target is refused: the load ends (does not hang) and the server never sees it
+    h.tx.send(ClientMsg::Navigate {
+        url: format!("http://127.0.0.1:{}/basic.html", addr.port()),
+    })
+    .unwrap();
+    let mut finished = false;
+    let r = timeout(Duration::from_secs(10), async {
+        while let Some(m) = h.rx.recv().await {
+            if let ServerMsg::LoadState { state, .. } = m {
+                finished |= !state.loading && state.progress == 100;
+                if finished {
+                    break;
+                }
+            }
+        }
+    })
+    .await;
+    assert!(
+        r.is_ok() && finished,
+        "navigation to a private address never finished (deadlock?)"
+    );
+    assert!(
+        !log.lock().unwrap().contains(&"/basic.html".to_string()),
+        "request reached the private server: {:?}",
+        log.lock().unwrap()
+    );
+
+    // a tracker domain as a *page* is still reachable (public.test stands in for a public host;
+    // segment.com is on the tracker list but must not be blocked as a top-level document)
+    h.tx.send(ClientMsg::Navigate {
+        url: format!("http://segment.com:{}/basic.html", addr.port()),
+    })
+    .unwrap();
+    screen
+        .until(&mut h, |g, _| g.dump_text().contains("Hello glyph"))
+        .await;
     srv.browser.close().await;
 }

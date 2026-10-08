@@ -18,3 +18,8 @@ clap = { version = "4", features = ["derive"] }
 glyph-client.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+postcard = { version = "1", default-features = false, features = ["use-std"] }

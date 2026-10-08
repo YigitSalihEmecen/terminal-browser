@@ -65,10 +65,16 @@ impl Metrics {
     }
 }
 
-/// Resident memory and cumulative CPU of a process tree.
+/// Memory and cumulative CPU of a process tree.
+///
+/// `rss_kb` is the plain sum of resident sizes, which counts pages shared between Chromium's
+/// processes once per process and therefore overstates real use (often 3-5x). `mem_kb` is the
+/// shared-aware figure (macOS `footprint`, Linux PSS) and is what benchmarks should quote; it is
+/// `None` where the platform offers neither.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ProcSample {
     pub rss_kb: u64,
+    pub mem_kb: Option<u64>,
     pub cpu_secs: f64,
     pub procs: u32,
 }
@@ -125,7 +131,60 @@ pub fn sample_tree(root: u32) -> Option<ProcSample> {
         }
         i += 1;
     }
+    s.mem_kb = shared_aware_kb(&in_tree);
     (s.procs > 0).then_some(s)
+}
+
+/// Sum of per-process proportional/physical memory, if the platform can tell us.
+fn shared_aware_kb(pids: &[u32]) -> Option<u64> {
+    if cfg!(target_os = "linux") {
+        let mut total = 0u64;
+        for p in pids {
+            // processes may exit between `ps` and now; they simply contribute nothing
+            if let Ok(t) = std::fs::read_to_string(format!("/proc/{p}/smaps_rollup")) {
+                total += t
+                    .lines()
+                    .find_map(|l| l.strip_prefix("Pss:"))
+                    .and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok())
+                    .unwrap_or(0);
+            }
+        }
+        return (total > 0).then_some(total);
+    }
+    if cfg!(target_os = "macos") {
+        let mut cmd = Command::new("footprint");
+        for p in pids {
+            cmd.arg("-p").arg(p.to_string());
+        }
+        let out = cmd.output().ok()?;
+        return parse_footprint(&String::from_utf8_lossy(&out.stdout));
+    }
+    None
+}
+
+/// Sum the `Footprint: 75 MB` headers of `footprint -p …` output, in KB.
+pub fn parse_footprint(text: &str) -> Option<u64> {
+    let mut total = 0f64;
+    let mut seen = false;
+    for line in text.lines() {
+        let Some((_, rest)) = line.split_once("Footprint: ") else {
+            continue;
+        };
+        let mut it = rest.split_whitespace();
+        let (Some(n), Some(unit)) = (it.next().and_then(|n| n.parse::<f64>().ok()), it.next())
+        else {
+            continue;
+        };
+        total += n * match unit {
+            "KB" => 1.0,
+            "MB" => 1024.0,
+            "GB" => 1024.0 * 1024.0,
+            "B" | "bytes" => 1.0 / 1024.0,
+            _ => continue,
+        };
+        seen = true;
+    }
+    seen.then_some(total as u64)
 }
 
 #[cfg(test)]
@@ -139,6 +198,13 @@ mod tests {
         assert_eq!(parse_cpu_time("1-00:00:10"), Some(86410.0));
         assert_eq!(parse_cpu_time("12:34.56"), Some(754.56));
         assert_eq!(parse_cpu_time("nope"), None);
+    }
+
+    #[test]
+    fn footprint_output_parses() {
+        let t = "====\nGoogle Chrome [1]: 64-bit    Footprint: 75 MB (16384 bytes per page)\n====\nHelper [2]: 64-bit    Footprint: 512 KB (16384 bytes per page)\nGPU [3]: 64-bit    Footprint: 1.5 GB (16384 bytes per page)\n";
+        assert_eq!(parse_footprint(t), Some(75 * 1024 + 512 + 1536 * 1024));
+        assert_eq!(parse_footprint("nothing here"), None);
     }
 
     #[test]

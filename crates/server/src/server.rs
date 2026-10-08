@@ -36,6 +36,8 @@ pub struct ServerCfg {
     pub chrome_args: Vec<String>,
     /// Override the profile's background-tab discard delay (seconds; `Some(0)` = never).
     pub discard_after_secs: Option<u64>,
+    /// Refuse loopback/private-network targets (default for non-loopback `serve`).
+    pub block_private: bool,
 }
 
 impl Default for ServerCfg {
@@ -49,8 +51,24 @@ impl Default for ServerCfg {
             window: 2,
             chrome_args: vec![],
             discard_after_secs: None,
+            block_private: false,
         }
     }
+}
+
+pub fn profile_for(cfg: &ServerCfg) -> ProfileCfg {
+    let mut p = ProfileCfg::for_profile(cfg.profile);
+    p.block_private = cfg.block_private;
+    p
+}
+
+/// Keep a client's requested viewport inside sane bounds (a 60000-column page costs gigabytes).
+pub fn clamp_caps(mut c: ClientCaps) -> ClientCaps {
+    c.cols = c.cols.clamp(10, 400);
+    c.rows = c.rows.clamp(3, 200);
+    c.cell_px_w = c.cell_px_w.min(64);
+    c.cell_px_h = c.cell_px_h.min(128);
+    c
 }
 
 pub struct Server {
@@ -67,7 +85,7 @@ pub struct SessionHandle {
 
 impl Server {
     pub async fn start(cfg: ServerCfg) -> Result<Arc<Self>> {
-        let profile = ProfileCfg::for_profile(cfg.profile);
+        let profile = profile_for(&cfg);
         let mut extra_args = profile.chrome_flags();
         extra_args.extend(cfg.chrome_args.iter().cloned());
         let browser = Browser::launch(&LaunchOptions {
@@ -144,6 +162,7 @@ impl Server {
 
     /// Start a session for a client with `caps`. The session emits `Hello` first.
     pub fn open_session(self: &Arc<Self>, caps: ClientCaps) -> SessionHandle {
+        let caps = clamp_caps(caps);
         let (ctx_tx, ctx_rx) = unbounded_channel();
         let (out_tx, out_rx) = unbounded_channel();
         let srv = self.clone();
@@ -209,7 +228,7 @@ impl Session {
         let (popup_tx, mut popup_rx) = unbounded_channel();
         srv.popups.lock().unwrap().insert(ctx.clone(), popup_tx);
         let (ev_tx, mut ev_rx) = unbounded_channel();
-        let profile = ProfileCfg::for_profile(srv.cfg.profile);
+        let profile = profile_for(&srv.cfg);
         let window = srv.cfg.window;
         let mut s = Session {
             srv,
@@ -454,6 +473,7 @@ impl Session {
             Key(k) => to_active(self, TabCmd::Key(k)),
             Mouse(e) => to_active(self, TabCmd::Mouse(e)),
             Resize { cols, rows } => {
+                let (cols, rows) = (cols.clamp(10, 400), rows.clamp(3, 200));
                 self.caps.cols = cols;
                 self.caps.rows = rows;
                 for t in &self.tabs {
@@ -592,5 +612,56 @@ impl Session {
             }
             TabEvent::Crashed => self.send(ServerMsg::Error(format!("tab {id} crashed"))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_rate_backs_off_multiplicatively_and_recovers_additively() {
+        let mut r = Rate {
+            fps: 10.0,
+            max: 10.0,
+        };
+        r.update(400.0); // slow link
+        assert!((r.fps - 6.0).abs() < 0.01);
+        r.update(400.0);
+        assert!((r.fps - 3.6).abs() < 0.01);
+        for _ in 0..3 {
+            r.update(30.0);
+        }
+        assert!((r.fps - 5.1).abs() < 0.01, "{}", r.fps);
+        for _ in 0..100 {
+            r.update(30.0);
+        }
+        assert_eq!(r.fps, 10.0, "never above the profile cap");
+        for _ in 0..50 {
+            r.update(900.0);
+        }
+        assert_eq!(r.fps, 1.0, "never below 1 fps");
+        r.update(150.0); // in the dead band: unchanged
+        assert_eq!(r.fps, 1.0);
+    }
+
+    #[test]
+    fn urls_and_schemes() {
+        // is_allowed_url is on Server (needs a browser), so exercise the same rules directly
+        let allowed = |schemes: &[&str], u: &str| match url::Url::parse(u) {
+            Ok(p) => match p.scheme() {
+                "http" | "https" => true,
+                "about" => u == "about:blank",
+                s => schemes.contains(&s),
+            },
+            Err(_) => false,
+        };
+        assert!(allowed(&[], "https://example.org/x"));
+        assert!(allowed(&[], "about:blank"));
+        assert!(!allowed(&[], "about:srcdoc"));
+        assert!(!allowed(&[], "file:///etc/passwd"));
+        assert!(!allowed(&[], "javascript:alert(1)"));
+        assert!(!allowed(&[], "chrome://settings"));
+        assert!(allowed(&["file"], "file:///tmp/x"));
     }
 }

@@ -112,6 +112,10 @@ impl Browser {
         let child = cmd
             .spawn()
             .with_context(|| format!("spawning {}", chrome_path.display()))?;
+        #[cfg(unix)]
+        if let Some(pid) = child.id() {
+            spawn_watchdog(pid, profile.path());
+        }
 
         let ws_url = wait_for_endpoint(profile.path(), Duration::from_secs(20)).await?;
         let cdp = Cdp::connect(&ws_url).await?;
@@ -221,4 +225,30 @@ async fn wait_for_endpoint(profile: &Path, timeout: Duration) -> Result<String> 
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
+}
+
+/// If this process dies without running destructors (SIGKILL, OOM-kill, a crashed terminal),
+/// nothing would stop the headless Chromium we started. A tiny detached shell loop notices the
+/// parent is gone, terminates the browser (only if the PID still looks like ours) and removes the
+/// profile directory. Cost: one idle `sh` + `sleep` per browser.
+#[cfg(unix)]
+fn spawn_watchdog(chrome_pid: u32, profile: &Path) {
+    const SCRIPT: &str = r#"
+        while kill -0 "$1" 2>/dev/null; do sleep 2; done
+        if ps -p "$2" -o command= 2>/dev/null | grep -q -- "$3"; then
+            kill -TERM "$2" 2>/dev/null; sleep 2; kill -KILL "$2" 2>/dev/null
+        fi
+        case "$3" in *glyph-profile-*) rm -rf -- "$3" ;; esac
+    "#;
+    let _ = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(SCRIPT)
+        .arg("glyph-watchdog")
+        .arg(std::process::id().to_string())
+        .arg(chrome_pid.to_string())
+        .arg(profile)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
 }

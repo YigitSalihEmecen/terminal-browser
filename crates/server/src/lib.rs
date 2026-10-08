@@ -6,6 +6,7 @@ pub mod capture;
 pub mod cdp;
 pub mod keys;
 pub mod metrics;
+pub mod net;
 pub mod outbox;
 pub mod page;
 pub mod pixmap;
