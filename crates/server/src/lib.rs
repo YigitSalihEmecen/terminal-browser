@@ -4,6 +4,8 @@ pub mod b64;
 pub mod browser;
 pub mod capture;
 pub mod cdp;
+pub mod colour;
+pub mod gridview;
 pub mod images;
 pub mod keys;
 pub mod metrics;

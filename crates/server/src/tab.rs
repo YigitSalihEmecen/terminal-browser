@@ -27,6 +27,10 @@ use crate::{
 const AGENT_JS: &str = include_str!("inject.js");
 const DEBOUNCE: Duration = Duration::from_millis(25);
 const MAX_STALE: Duration = Duration::from_millis(250);
+/// How long after an input the higher interactive frame rate stays available.
+const INTERACTIVE: Duration = Duration::from_millis(900);
+/// Frame-rate ceiling while interacting (scroll, typing), whatever the profile's idle cap.
+const INTERACTIVE_FPS: f32 = 20.0;
 
 #[derive(Debug)]
 pub enum TabCmd {
@@ -100,12 +104,6 @@ impl TabHandle {
     }
 }
 
-struct FrameData {
-    jpeg_b64: String,
-    /// Page scroll offset when the frame was produced (screencast metadata).
-    scroll: Option<(f64, f64)>,
-}
-
 struct Tab {
     id: TabId,
     sess: Session,
@@ -117,7 +115,8 @@ struct Tab {
     events: UnboundedReceiver<Event>,
     out: UnboundedSender<(TabId, TabEvent)>,
     // paint pipeline
-    frame: Option<FrameData>,
+    /// Scroll offset reported with the latest screencast frame.
+    frame_scroll: Option<(f64, f64)>,
     pending_ack: Option<i64>,
     dirty_since: Option<Instant>,
     last_event: Instant,
@@ -140,6 +139,21 @@ struct Tab {
     // terminal-graphics images already delivered: id -> pixel hash
     images_sent: std::collections::HashMap<u32, u64>,
     pending_crops: Option<Vec<Crop>>,
+    interactive_until: Instant,
+}
+
+/// The injected page agent (animation/caret killer, terminal-native page style, scroll helper,
+/// focus/caret/clipboard reporting) with its parameters filled in.
+pub fn agent_js(terminal: bool, cw: f64, ch: f64) -> String {
+    AGENT_JS
+        .replace("__TERMINAL__", if terminal { "true" } else { "false" })
+        .replace("__CW__", &cw.to_string())
+        .replace("__CH__", &ch.to_string())
+}
+
+fn scroll_of(v: &Value) -> (f64, f64) {
+    let a = &v["result"]["value"];
+    (a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0))
 }
 
 /// Attach to `sess` and run the tab until `Close`.
@@ -175,7 +189,7 @@ pub fn spawn(
         cw: cfg.cw,
         ch: cfg.ch,
     };
-    let fps = cfg.profile.max_fps;
+    let fps = INTERACTIVE_FPS; // the session's AIMD controller lowers it on slow links
     let tab = Tab {
         id,
         sess,
@@ -186,7 +200,7 @@ pub fn spawn(
         cmds,
         events,
         out,
-        frame: None,
+        frame_scroll: None,
         pending_ack: None,
         dirty_since: None,
         last_event: Instant::now(),
@@ -206,6 +220,7 @@ pub fn spawn(
         find_hits: Vec::new(),
         images_sent: std::collections::HashMap::new(),
         pending_crops: None,
+        interactive_until: Instant::now(),
     };
     tokio::spawn(async move {
         if let Err(e) = tab.run(start_url).await {
@@ -254,7 +269,6 @@ struct FrameMeta {
 
 #[derive(Deserialize)]
 struct Frame {
-    data: String,
     #[serde(default)]
     metadata: FrameMeta,
     #[serde(rename = "sessionId")]
@@ -291,7 +305,7 @@ impl Tab {
             .await?;
         s.send(
             "Page.addScriptToEvaluateOnNewDocument",
-            json!({ "source": AGENT_JS }),
+            json!({ "source": self.agent_source() }),
         )
         .await?;
         s.send(
@@ -307,17 +321,25 @@ impl Tab {
         self.start_screencast().await
     }
 
+    /// The page agent with this tab's style parameters filled in.
+    fn agent_source(&self) -> String {
+        agent_js(
+            self.cfg.caps.page_style == glyph_proto::PageStyle::Terminal,
+            self.cfg.cw,
+            self.cfg.ch,
+        )
+    }
+
+    /// The screencast is only a "something was painted" signal (it fires exactly when Chromium
+    /// produced new pixels, so an idle page costs nothing). Real pixels come from a screenshot
+    /// taken together with the DOM snapshot, so the frames themselves are requested tiny and at
+    /// the lowest quality: full-size ones cost Chromium encode time and CDP bandwidth for nothing.
     async fn start_screencast(&self) -> Result<()> {
+        let _ = self.sess.send("Page.stopScreencast", json!({})).await;
         self.sess
             .send(
                 "Page.startScreencast",
-                json!({
-                    "format": "jpeg",
-                    "quality": self.cfg.profile.jpeg_quality,
-                    "maxWidth": self.m.px_w() as u32,
-                    "maxHeight": self.m.px_h() as u32,
-                    "everyNthFrame": 1,
-                }),
+                json!({ "format": "jpeg", "quality": 10, "maxWidth": 32, "maxHeight": 32, "everyNthFrame": 1 }),
             )
             .await
     }
@@ -354,6 +376,15 @@ impl Tab {
 
     // ------------------------------------------------------------ scheduling
 
+    /// An input just changed the page: refresh as soon as the rate limit allows, and allow a
+    /// higher rate for a moment (scrolling should feel fluid even in the `lean` profile).
+    fn mark_urgent(&mut self) {
+        let now = Instant::now();
+        self.interactive_until = now + INTERACTIVE;
+        self.last_event = now - DEBOUNCE;
+        self.dirty_since.get_or_insert(now - DEBOUNCE);
+    }
+
     fn mark_dirty(&mut self) {
         let now = Instant::now();
         self.last_event = now;
@@ -366,7 +397,12 @@ impl Tab {
         }
         let since = self.dirty_since?;
         let now = Instant::now();
-        let min_interval = Duration::from_secs_f32(1.0 / self.fps.max(0.5));
+        let cap = if now < self.interactive_until {
+            self.fps.min(INTERACTIVE_FPS)
+        } else {
+            self.fps.min(self.cfg.profile.max_fps)
+        };
+        let min_interval = Duration::from_secs_f32(1.0 / cap.max(0.5));
         let quiet_at = (self.last_event + DEBOUNCE).min(since + MAX_STALE);
         let rate_at = self.last_refresh + min_interval;
         Some(quiet_at.max(rate_at).saturating_duration_since(now))
@@ -419,38 +455,76 @@ impl Tab {
         Ok(())
     }
 
+    /// Scroll offset once the compositor has committed the main thread's state (two animation
+    /// frames), falling back to a plain read if the page cannot run animation frames right now.
+    async fn settled_scroll(&self) -> Result<(f64, f64)> {
+        let settled = self.sess.call::<Value>(
+            "Runtime.evaluate",
+            json!({
+                "expression": "window.__glyphSettled ? window.__glyphSettled() : Promise.resolve([scrollX, scrollY])",
+                "awaitPromise": true,
+                "returnByValue": true
+            }),
+        );
+        match tokio::time::timeout(Duration::from_millis(400), settled).await {
+            Ok(Ok(v)) => Ok(scroll_of(&v)),
+            _ => self.read_scroll().await,
+        }
+    }
+
+    async fn read_scroll(&self) -> Result<(f64, f64)> {
+        let v = self.eval("(function(){const r=document.scrollingElement||document.documentElement;return [r.scrollLeft,r.scrollTop]})()").await?;
+        Ok(scroll_of(&v))
+    }
+
+    /// Snapshot + screenshot that provably belong together. Text comes from the snapshot and colour
+    /// from the screenshot; if the page scrolled between the two, mixing them would draw rows with
+    /// the wrong colours. So the scroll offset is read before and after, and the capture is
+    /// retried until the snapshot and both reads agree. If it never settles the frame is rendered
+    /// from the DOM alone (no pixels) and a retry is scheduled, never as a mixed frame.
     async fn render_pixel(&mut self) -> Result<Rendered> {
-        let raw = capture::snapshot_raw(&self.sess).await?;
-        let (snap, snap_scroll) =
-            tokio::task::spawn_blocking(move || -> Result<(SnapshotResult, Option<(f64, f64)>)> {
-                let snap: SnapshotResult = serde_json::from_str(raw.get())?;
-                let scroll = snap.documents.first().map(|d| (d.scroll_x, d.scroll_y));
-                Ok((snap, scroll))
+        let quality = self.cfg.profile.jpeg_quality;
+        let mut shot: Option<String> = None;
+        let mut snap: Option<SnapshotResult> = None;
+        for attempt in 0..3 {
+            let s0 = self.settled_scroll().await?;
+            // the two captures run concurrently; the scroll reads around them prove they agree
+            #[derive(Deserialize)]
+            struct R {
+                data: String,
+            }
+            let (raw, r) = tokio::join!(
+                capture::snapshot_raw(&self.sess),
+                self.sess.call::<R>(
+                    "Page.captureScreenshot",
+                    json!({ "format": "jpeg", "quality": quality, "fromSurface": true })
+                )
+            );
+            let (raw, r) = (raw?, r?);
+            let s1 = self.read_scroll().await?;
+            let parsed = tokio::task::spawn_blocking(move || {
+                serde_json::from_str::<SnapshotResult>(raw.get())
             })
             .await??;
-        // A screencast frame from a different scroll position would paint the old page into
-        // cells the snapshot says are empty: drop it and take a fresh screenshot instead.
-        let fresh = self
-            .frame
-            .as_ref()
-            .is_some_and(|f| match (f.scroll, snap_scroll) {
-                (Some((fx, fy)), Some((sx, sy))) => (fx - sx).abs() < 1.0 && (fy - sy).abs() < 1.0,
-                _ => true,
-            });
-        let jpeg_b64 = match (&self.frame, fresh) {
-            (Some(f), true) => f.jpeg_b64.clone(),
-            _ => {
-                #[derive(Deserialize)]
-                struct R {
-                    data: String,
-                }
-                let r: R = self
-                    .sess
-                    .call("Page.captureScreenshot", json!({ "format": "jpeg", "quality": self.cfg.profile.jpeg_quality, "fromSurface": true }))
-                    .await?;
-                r.data
+            let at = parsed
+                .documents
+                .first()
+                .map(|d| (d.scroll_x, d.scroll_y))
+                .unwrap_or(s1);
+            let same =
+                |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() < 1.0 && (a.1 - b.1).abs() < 1.0;
+            let consistent = same(s0, s1) && same(s1, at);
+            snap = Some(parsed);
+            if consistent {
+                shot = Some(r.data);
+                break;
             }
-        };
+            tracing::debug!("capture attempt {attempt} raced a scroll ({s0:?} {s1:?} {at:?})");
+        }
+        let snap = snap.expect("at least one attempt ran");
+        if shot.is_none() {
+            self.mark_dirty(); // try again shortly; this frame is text only
+        }
         let m = self.m;
         let wants_gfx =
             self.cfg.caps.graphics != glyph_proto::GraphicsProto::None && self.cfg.caps.images;
@@ -459,15 +533,15 @@ impl Tab {
         } else {
             Default::default()
         };
-        let (tab, quality) = (self.id, self.cfg.profile.jpeg_quality.max(55));
+        let (tab, crop_quality) = (self.id, self.cfg.profile.jpeg_quality.max(55));
         let (rendered, crops) =
             tokio::task::spawn_blocking(move || -> Result<(Rendered, Vec<Crop>)> {
-                let pix = crate::b64::decode(&jpeg_b64)
-                    .ok()
+                let pix = shot
+                    .and_then(|b64| crate::b64::decode(&b64).ok())
                     .and_then(|b| Pixmap::decode_jpeg(&b).ok());
                 let r = render(&snap, pix.as_ref(), &m);
                 let crops = match (&pix, wants_gfx) {
-                    (Some(p), true) => crop_images(p, &m, tab, &r.images, quality, &known),
+                    (Some(p), true) => crop_images(p, &m, tab, &r.images, crop_quality, &known),
                     _ => Vec::new(),
                 };
                 Ok((r, crops))
@@ -586,11 +660,7 @@ impl Tab {
                             .await;
                         return;
                     }
-                    // an older unacked frame is superseded (acked together with this one)
-                    self.frame = Some(FrameData {
-                        jpeg_b64: f.data,
-                        scroll: Some((f.metadata.sx, f.metadata.sy)),
-                    });
+                    self.frame_scroll = Some((f.metadata.sx, f.metadata.sy));
                     // Chromium counts frames in flight: every frame must be acked exactly once,
                     // including ones we superseded before rendering.
                     if let Some(old) = self.pending_ack.replace(f.session_id) {
@@ -654,7 +724,7 @@ impl Tab {
             }
             "Page.frameNavigated" => {
                 // new document: forget the old pixels so we never mix pages
-                self.frame = None;
+                self.frame_scroll = None;
                 self.cursor = None;
                 self.text_stale = true;
                 self.text_scroll = 0;
@@ -784,7 +854,7 @@ impl Tab {
                 for p in key_events(k) {
                     self.sess.send("Input.dispatchKeyEvent", p).await?;
                 }
-                self.mark_dirty();
+                self.mark_urgent();
             }
             TabCmd::Mouse(m) if self.mode == RenderMode::Text => self.text_mouse(m).await?,
             TabCmd::Mouse(m) => self.mouse(m).await?,
@@ -841,7 +911,7 @@ impl Tab {
                 self.m.cols = cols.max(1);
                 self.m.rows = rows.max(1);
                 capture::set_viewport(&self.sess, &self.m).await?;
-                self.frame = None;
+                self.frame_scroll = None;
                 self.images_sent.clear(); // the client dropped its placements on resize
                 self.text_stale = true; // reader layout depends on width
                 if self.mode == RenderMode::Pixel {
@@ -852,7 +922,7 @@ impl Tab {
             }
             TabCmd::SetMode(m) if m != self.mode => self.set_mode(m).await?,
             TabCmd::SetMode(_) => {}
-            TabCmd::SetFps(f) => self.fps = f.clamp(0.5, self.cfg.profile.max_fps),
+            TabCmd::SetFps(f) => self.fps = f.clamp(0.5, INTERACTIVE_FPS),
             TabCmd::Active(a) => {
                 self.active = a;
                 if a {
@@ -861,7 +931,7 @@ impl Tab {
                         .await
                         .ok();
                     self.images_sent.clear();
-                    self.frame = None;
+                    self.frame_scroll = None;
                     if self.mode == RenderMode::Pixel {
                         self.start_screencast().await?;
                     }
@@ -877,7 +947,7 @@ impl Tab {
             }
             TabCmd::Refresh => {
                 self.images_sent.clear();
-                self.frame = None;
+                self.frame_scroll = None;
                 self.mark_dirty();
             }
             TabCmd::Close => {}
@@ -887,7 +957,7 @@ impl Tab {
 
     async fn set_mode(&mut self, m: RenderMode) -> Result<()> {
         self.mode = m;
-        self.frame = None;
+        self.frame_scroll = None;
         self.cursor = None;
         let _ = self.out.send((self.id, TabEvent::Cursor(None)));
         match m {
@@ -1087,7 +1157,7 @@ impl Tab {
                 json!({ "type": ty, "x": x, "y": y, "button": button, "clickCount": m.clicks.max(1), "modifiers": cdp_mods(m.mods) }),
             )
             .await?;
-        self.mark_dirty();
+        self.mark_urgent();
         Ok(())
     }
 
@@ -1099,35 +1169,26 @@ impl Tab {
         col: u16,
         row: u16,
     ) -> Result<()> {
-        match unit {
-            ScrollUnit::Edge => {
-                let js = if dy < 0 {
-                    "window.scrollTo(0,0)"
-                } else {
-                    "window.scrollTo(0, document.documentElement.scrollHeight)"
-                };
-                self.eval(js).await?;
-            }
-            _ => {
-                let (ppx, ppy) = match unit {
-                    ScrollUnit::Lines => (self.m.cw, self.m.ch),
-                    _ => (self.m.px_w() - self.m.cw, self.m.px_h() - self.m.ch),
-                };
-                self.sess
-                    .send(
-                        "Input.dispatchMouseEvent",
-                        json!({
-                            "type": "mouseWheel",
-                            "x": (col as f64 + 0.5) * self.m.cw,
-                            "y": (row as f64 + 0.5) * self.m.ch,
-                            "deltaX": dx as f64 * ppx,
-                            "deltaY": dy as f64 * ppy,
-                        }),
-                    )
-                    .await?;
-            }
-        }
-        self.mark_dirty();
+        let (x, y) = (
+            (col as f64 + 0.5) * self.m.cw,
+            (row as f64 + 0.5) * self.m.ch,
+        );
+        let (ppx, ppy) = match unit {
+            ScrollUnit::Lines => (self.m.cw, self.m.ch),
+            _ => (self.m.px_w() - self.m.cw, self.m.px_h() - self.m.ch),
+        };
+        let edge = if unit == ScrollUnit::Edge {
+            dy.signum()
+        } else {
+            0
+        };
+        let js = format!(
+            "window.__glyphScroll({x},{y},{},{},{edge})",
+            dx as f64 * ppx,
+            dy as f64 * ppy
+        );
+        self.eval(&js).await?;
+        self.mark_urgent();
         Ok(())
     }
 

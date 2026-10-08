@@ -1,4 +1,5 @@
 mod bench;
+mod shot;
 
 use std::{path::PathBuf, time::Duration};
 
@@ -130,6 +131,35 @@ enum Cmd {
         /// URL or search to open at start.
         url: Option<String>,
     },
+    /// Debug aid: drive a live session through scripted steps and save side-by-side PNGs of the real
+    /// page and the terminal grid. Steps: wait S; scroll N; page N; edge top|bottom; click C R;
+    /// key TEXT; mode text|pixel; navigate PAGE; snap [NAME].
+    Shot {
+        /// Page (relative to --serve) or full URL.
+        page: String,
+        #[arg(long, default_value = "fixtures/gallery")]
+        serve: PathBuf,
+        #[arg(long, default_value = "shots")]
+        out: PathBuf,
+        #[arg(long, default_value_t = 120)]
+        cols: u16,
+        #[arg(long, default_value_t = 40)]
+        rows: u16,
+        #[arg(long, default_value = "wait 2; snap")]
+        steps: String,
+        #[arg(long, value_enum, default_value = "balanced")]
+        profile: ProfileArg,
+        #[arg(long)]
+        chrome: Option<PathBuf>,
+        #[arg(long = "chrome-arg")]
+        chrome_arg: Vec<String>,
+        /// Tell pages the client prefers a dark colour scheme.
+        #[arg(long)]
+        dark: bool,
+        /// Keep the page's own fonts and spacing instead of the terminal-native layout.
+        #[arg(long)]
+        faithful: bool,
+    },
     /// Measure server memory, CPU and bytes streamed on fixed sample pages.
     Bench {
         /// Profiles to measure.
@@ -242,6 +272,34 @@ async fn main() -> Result<()> {
             .await;
             srv.browser.close().await;
             res?;
+        }
+        Cmd::Shot {
+            page,
+            serve,
+            out,
+            cols,
+            rows,
+            steps,
+            profile,
+            chrome,
+            chrome_arg,
+            dark,
+            faithful,
+        } => {
+            shot::run(shot::Opts {
+                serve,
+                page,
+                out,
+                cols,
+                rows,
+                steps,
+                profile: profile.into(),
+                chrome,
+                chrome_args: chrome_arg,
+                dark,
+                faithful,
+            })
+            .await?;
         }
         Cmd::Bench {
             profile,

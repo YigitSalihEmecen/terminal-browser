@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><title>Article</title>
+<style>body{margin:0;font:17px/1.65 Georgia,serif;color:#222;background:#fffdf8}.wrap{display:flex;gap:32px;max-width:980px;margin:0 auto;padding:24px}article{flex:1}aside{width:240px;font:14px/1.5 system-ui,sans-serif;color:#444}
+aside .box{background:#f1efe8;border-radius:8px;padding:12px;margin-bottom:16px}h1{font:700 34px/1.2 system-ui,sans-serif}h2{font:700 22px system-ui,sans-serif;margin-top:28px}.meta{font:13px system-ui;color:#777}
+table{border-collapse:collapse;font:14px system-ui}td,th{border:1px solid #ccc;padding:4px 10px}th{background:#eee}pre{background:#272822;color:#f8f8f2;padding:12px;border-radius:6px;font:13px/1.4 Menlo,monospace;overflow:auto}</style>
+<div class="wrap"><article><h1>How terminal browsers render the web</h1><p class="meta">By A. Writer · 8 Oct 2026 · 6 min read · <a href="#">Share</a></p>
+<p>Rendering a web page into a grid of characters is an exercise in compromise. A cell is eight pixels wide and sixteen tall, a paragraph in a proportional font rarely lines up with it, and yet the result can be remarkably readable when the renderer respects the structure of the page rather than its pixels.</p>
+<h2>Text first</h2><p>The first rule is that text should stay text. When a paragraph is drawn as coloured blocks it turns into noise; when it is drawn as characters it stays crisp and selectable, even if its position is only approximate. Links keep their underline and colour, headings keep their weight.</p>
+<blockquote style="border-left:4px solid #ccc;margin:16px 0;padding-left:16px;color:#555">Structure survives quantisation; pixels do not.</blockquote>
+<h2>Numbers</h2><table><tr><th>Mode</th><th>Bytes/min</th><th>CPU</th></tr><tr><td>Idle</td><td>0</td><td>0%</td></tr><tr><td>Reading</td><td>43 KB</td><td>9%</td></tr><tr><td>Video</td><td>—</td><td>—</td></tr></table>
+<h2>Code</h2><pre>let grid = render(&amp;snapshot, Some(&amp;pixels), &amp;metrics);
+send(diff(&amp;previous, &amp;grid));</pre>
+<p>More prose follows so that the page scrolls: the quick brown fox jumps over the lazy dog, again and again, with <a href="#">a link in the middle</a> of the sentence and <b>bold</b> and <i>italic</i> emphasis. Every sentence is long enough to wrap across a few terminal rows at typical widths.</p>
+<p>Another paragraph. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p></article>
+<aside><div class="box"><b>Contents</b><br><a href="#">Text first</a><br><a href="#">Numbers</a><br><a href="#">Code</a></div><div class="box"><b>Related</b><br><a href="#">Why pixels lie</a><br><a href="#">Fast diffs</a></div></aside></div>

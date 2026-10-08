@@ -14,6 +14,9 @@ hint_chars = "asdfghjklqwertyuiopzxcvbnm"
 color = "auto"
 # What pages see for prefers-color-scheme: "auto" (follow $COLORFGBG, else light) | "light" | "dark".
 color_scheme = "auto"
+# "terminal": lay pages out in a monospace font exactly one cell wide with one-cell line height, so
+# text lands exactly in cells (most stable). "faithful": keep the page's own fonts and spacing.
+page_style = "terminal"
 # Capture the mouse (click, wheel, drag-to-copy). Turn off to use your terminal's own selection.
 mouse = true
 # Opened by the "new-tab" action (ctrl-t). "about:blank" opens an empty tab.

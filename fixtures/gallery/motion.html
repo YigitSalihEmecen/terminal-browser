@@ -1,0 +1,13 @@
+<!doctype html><meta charset="utf-8"><title>Motion</title>
+<style>body{margin:0;padding:20px 28px;font:16px/1.5 system-ui,sans-serif}.bar{height:14px;background:#e5e7eb;border-radius:7px;overflow:hidden;max-width:500px}.bar i{display:block;height:100%;background:#2563eb;width:0}
+.box{width:60px;height:60px;background:#f59e0b;border-radius:10px;transition:transform .6s ease;margin:12px 0}.spin{width:28px;height:28px;border:4px solid #2563eb;border-top-color:transparent;border-radius:50%;animation:s .8s linear infinite;display:inline-block;vertical-align:middle}
+@keyframes s{to{transform:rotate(360deg)}}.pulse{animation:p 1s ease-in-out infinite;display:inline-block;padding:4px 10px;background:#dc2626;color:#fff;border-radius:6px}@keyframes p{50%{opacity:.3}}
+.ticker{overflow:hidden;white-space:nowrap;max-width:500px;border:1px solid #ddd}.ticker span{display:inline-block;animation:m 8s linear infinite;padding-left:100%}@keyframes m{to{transform:translateX(-100%)}}</style>
+<h1>Motion</h1><p>Clock: <b id="clock">–</b> · Counter: <b id="n">0</b> <span class="spin"></span> <span class="pulse">LIVE</span></p>
+<div class="bar"><i id="p"></i></div><div class="box" id="b"></div>
+<div class="ticker"><span>Breaking: terminal browsers are back · markets up · weather mild · more news follows</span></div>
+<p><button id="t">Toggle box</button> <button id="m">Add 20 rows</button></p><div id="list"></div>
+<script>let n=0,x=0;setInterval(()=>{document.getElementById('clock').textContent=new Date().toLocaleTimeString();document.getElementById('n').textContent=++n},250);
+setInterval(()=>{x=(x+2)%101;document.getElementById('p').style.width=x+'%'},100);
+document.getElementById('t').onclick=()=>{const b=document.getElementById('b');b.style.transform=b.style.transform?'':'translateX(200px)'};
+document.getElementById('m').onclick=()=>{const l=document.getElementById('list');for(let i=0;i<20;i++){const d=document.createElement('div');d.textContent='added row '+(l.children.length+1);l.appendChild(d)}};</script>

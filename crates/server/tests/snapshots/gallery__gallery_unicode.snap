@@ -1,0 +1,23 @@
+---
+source: crates/server/tests/gallery.rs
+expression: r.grid.dump_text()
+---
+
+
+    Unicode
+
+    CJK: 日本語のテキスト、中文文本、한국어 텍스트
+    Emoji: 😀 🎉 👍🏽 🇦🇹 👨‍👩‍👧‍👦 ❤️ ✅
+
+    Accents: café naïve Zoë Ångström ñ ü ß — combining: é ñ å
+
+                                                        العربية: مرحبا بالعالم · עברית: שלום עולם
+
+    Symbols: → ← ↑ ↓ ✓ ✗ ★ ☆ © ® ™ € £ ¥ ½ ¼ ± × ÷ ∞ ≈ ≠ ≤ ≥ √ ∑
+
+    Box: ┌─┬─┐ │ │ │ ├─┼─┤ └─┴─┘ ▀▄█ ░▒▓
+
+     日本   Japan
+     한국   Korea
+
+     中国   China

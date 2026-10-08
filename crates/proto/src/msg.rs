@@ -68,6 +68,17 @@ pub enum GraphicsProto {
     Iterm2,
 }
 
+/// How the page is laid out for the terminal.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Serialize, Deserialize)]
+pub enum PageStyle {
+    /// Inject CSS so Chromium lays the page out in a monospace font whose advance is exactly one
+    /// cell and with one-cell line height: text lands exactly in cells, lines never collide.
+    #[default]
+    Terminal,
+    /// Leave the page's own fonts and line heights alone (text is placed by approximation).
+    Faithful,
+}
+
 /// What the page should see for `prefers-color-scheme`.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Serialize, Deserialize)]
 pub enum ColorScheme {
@@ -177,6 +188,7 @@ pub struct ClientCaps {
     pub cell_px_h: u16,
     pub graphics: GraphicsProto,
     pub scheme: ColorScheme,
+    pub page_style: PageStyle,
     /// Client wants image data / cannot live without images (disables lean image blocking).
     pub images: bool,
 }

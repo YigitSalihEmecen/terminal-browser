@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8"><title>Typography</title>
+<style>
+body{margin:0;padding:24px 32px;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1f2328;background:#fff;max-width:760px}
+h1{font-size:40px;line-height:1.1;margin:0 0 12px}h2{font-size:28px;margin:28px 0 8px}h3{font-size:20px;margin:20px 0 6px}
+small{font-size:12px;color:#57606a}.tiny{font-size:10px}.big{font-size:22px}
+a{color:#0969da}a:visited{color:#8250df}code,pre{font:13px/1.4 ui-monospace,Menlo,monospace;background:#f0f3f6;border-radius:6px}
+code{padding:2px 5px}pre{padding:12px;overflow:auto}blockquote{margin:12px 0;padding:4px 16px;border-left:4px solid #d0d7de;color:#57606a}
+mark{background:#fff8c5}del{color:#cf222e}ins{color:#1a7f37}kbd{border:1px solid #d0d7de;border-bottom-width:2px;border-radius:4px;padding:1px 5px;font:12px monospace}
+.muted{color:#8c959f}.red{color:#cf222e}.green{color:#1a7f37}.blue{color:#0969da}
+</style>
+<h1>Typography test</h1>
+<p>Body text at 16px with a <a href="#x">link</a>, <b>bold</b>, <i>italic</i>, <u>underline</u>, <del>deleted</del>, <ins>inserted</ins>, <mark>marked</mark> and <code>inline code</code>. Press <kbd>Ctrl</kbd>+<kbd>K</kbd>.</p>
+<p class="big">Larger text at 22px follows the same flow and should still read as one clean line of text.</p>
+<p><small>Small print at 12px, which is below a cell's height, so several of these lines would collide in a naive renderer.</small></p>
+<p class="tiny">Tiny text at 10px: the quick brown fox jumps over the lazy dog.</p>
+<h2>Heading two</h2>
+<h3>Heading three</h3>
+<p>Colours: <span class="red">red</span> <span class="green">green</span> <span class="blue">blue</span> <span class="muted">muted grey</span>.</p>
+<ul><li>Bullet one</li><li>Bullet two with a <a href="#y">second link</a><ul><li>Nested bullet</li><li>Another nested</li></ul></li><li>Bullet three</li></ul>
+<ol><li>First</li><li>Second</li><li>Third</li></ol>
+<blockquote>A quotation set off from the text with a border. It continues onto a second line so wrapping inside a bordered block is visible.</blockquote>
+<pre>fn main() {
+    println!("hello, terminal");   // monospace block
+}</pre>
+<p style="line-height:1.1;font-size:14px">Tight line height 1.1 at 14px: this paragraph is deliberately dense so that consecutive lines are closer together than one terminal row, which is where simple row mapping collides lines.
+Tight line height 1.1 at 14px: this paragraph is deliberately dense so that consecutive lines are closer together than one terminal row.</p>
+<p style="letter-spacing:3px;text-transform:uppercase;font-size:13px">Spaced uppercase label</p>
+<p style="text-align:center">Centered text</p><p style="text-align:right">Right-aligned text</p>
+<p style="text-indent:2em">Indented first line, followed by justified text. <span style="display:block;text-align:justify">Justified paragraph: lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud.</span></p>

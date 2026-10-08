@@ -1,0 +1,27 @@
+<!doctype html><meta charset="utf-8"><title>Cards</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,sans-serif;background:#f4f5f7;color:#172b4d}
+header{background:#0b5fff;color:#fff;padding:14px 24px;display:flex;align-items:center;gap:20px;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+header b{font-size:20px}header a{color:#dbe7ff;text-decoration:none}header .sp{flex:1}
+.btn{display:inline-block;padding:8px 16px;border-radius:8px;background:#fff;color:#0b5fff;font-weight:600;text-decoration:none;border:0;cursor:pointer}
+.btn.primary{background:#0b5fff;color:#fff}.btn.ghost{background:transparent;border:1px solid #c1c7d0;color:#172b4d}
+main{padding:24px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;max-width:1000px;margin:0 auto}
+.card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 3px rgba(9,30,66,.25),0 8px 16px -8px rgba(9,30,66,.2)}
+.card h3{margin:0 0 6px;font-size:18px}.card p{margin:0 0 12px;color:#5e6c84}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.b1{background:#e3fcef;color:#006644}.b2{background:#fff0b3;color:#7a5200}.b3{background:#ffebe6;color:#bf2600}
+.avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#ff5f6d,#ffc371);display:inline-block;vertical-align:middle;margin-right:10px}
+.row{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+.stat{font-size:30px;font-weight:700}.bar{height:8px;border-radius:4px;background:#ebecf0;overflow:hidden}.bar i{display:block;height:100%;background:#36b37e}
+footer{text-align:center;color:#6b778c;padding:24px}
+</style>
+<header><b>Acme</b><a href="#">Products</a><a href="#">Pricing</a><a href="#">Docs</a><span class="sp"></span><a class="btn" href="#">Sign in</a></header>
+<main>
+<div class="card"><span class="badge b1">Healthy</span><h3>API gateway</h3><p>99.98% uptime over the last 30 days.</p><div class="bar"><i style="width:92%"></i></div><div class="row"><span class="stat">92%</span><a class="btn primary" href="#">Open</a></div></div>
+<div class="card"><span class="badge b2">Degraded</span><h3>Search index</h3><p>Rebuild in progress, queries are slower.</p><div class="bar"><i style="width:55%;background:#ffab00"></i></div><div class="row"><span class="stat">55%</span><a class="btn ghost" href="#">Details</a></div></div>
+<div class="card"><span class="badge b3">Down</span><h3>Billing worker</h3><p>Three consecutive failures.</p><div class="bar"><i style="width:8%;background:#ff5630"></i></div><div class="row"><span class="stat">8%</span><a class="btn ghost" href="#">Restart</a></div></div>
+<div class="card"><span class="avatar"></span><b>Ada Lovelace</b><p style="margin-top:8px">“The engine might compose elaborate and scientific pieces of music.”</p><div class="row"><a href="#">Profile</a><a href="#">Message</a></div></div>
+<div class="card"><h3>Pricing</h3><p>Start free, upgrade when you grow.</p><div class="stat">$0<small style="font-size:14px;color:#6b778c"> / month</small></div><div class="row"><a class="btn primary" href="#">Get started</a><a class="btn ghost" href="#">Contact</a></div></div>
+<div class="card"><h3>Notifications</h3><p>You have <b>3</b> unread messages and <b>1</b> mention.</p><label><input type="checkbox" checked> Email me</label><br><label><input type="checkbox"> Push</label><div class="row"><button class="btn primary">Save</button><button class="btn ghost">Cancel</button></div></div>
+</main>
+<footer>© Acme Inc. · <a href="#">Terms</a> · <a href="#">Privacy</a></footer>

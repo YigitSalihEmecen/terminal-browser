@@ -171,6 +171,11 @@ fn detect_caps(cfg: &Config, size: (u16, u16)) -> ClientCaps {
         cell_px_h,
         graphics,
         scheme: crate::color::color_scheme(&cfg.ui.color_scheme),
+        page_style: if cfg.ui.page_style == "faithful" {
+            glyph_proto::PageStyle::Faithful
+        } else {
+            glyph_proto::PageStyle::Terminal
+        },
         images: graphics != GraphicsProto::None || cfg.images.always_load,
     }
 }

@@ -883,6 +883,7 @@ name = "glyph"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "clap",
  "futures-util",
  "glyph-client",
@@ -960,6 +961,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "tracing",
+ "tracing-subscriber",
  "url",
  "zune-jpeg",
 ]

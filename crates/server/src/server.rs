@@ -262,8 +262,8 @@ impl Session {
             out,
             outbox: Outbox::new(0, window, 0),
             rate: Rate {
-                fps: profile.max_fps,
-                max: profile.max_fps,
+                fps: 20.0,
+                max: 20.0,
             },
             profile,
         };

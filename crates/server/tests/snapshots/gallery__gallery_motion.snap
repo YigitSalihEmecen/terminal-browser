@@ -1,0 +1,21 @@
+---
+source: crates/server/tests/gallery.rs
+expression: r.grid.dump_text()
+---
+
+
+    Motion
+
+    Clock: 8:03:36 PM · Counter: 2 ▟  ▖  LIVE ▐
+                                   ▞▄▄▄       ▟
+   ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+   ▝▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+   ▗▄▄▄▄▄▄▄
+   ▐
+   ▐
+   ▐      ▗
+    ▝▄▄▄▄▄
+                                                                  Breaking: terminal browsers are b…
+   ▗            ▗
+   ▐ Toggle box ▐ Add 20 rows
+   ▝▄▄▄▄▄▄▄▄▄▄▄▟▝▄▄▄▄▄▄▄▄▄▄▄▄▟

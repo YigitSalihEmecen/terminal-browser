@@ -2,11 +2,11 @@
 source: crates/server/tests/render_fixtures.rs
 expression: styles(& r.grid)
 ---
-r00 [#222222 #ffffff ]" " [#000000 #ffffff ]"ASCII: abc                                                                                         "
-r01 [#222222 #ffffff ]" " [#000000 #ffffff ]"CJK: 日本語の文章 中文 한국어                                                                      "
-r02 [#222222 #ffffff ]" " [#000000 #ffffff ]"Emoji: 😀" [#222222 #fff098 ]" " [#000000 #ffffff ]"👍🏽 🇦🇹 👨\u{200d}👩\u{200d}👧                                                                                 "
-r03 [#222222 #ffffff ]" " [#000000 #ffffff ]"Combining: e\u{301} n\u{303} ö                                                                                   "
-r04 [#222222 #ffffff ]" " [#000000 #ffffff ]"Box: ┌──┐ │██│ └──┘                                                                                "
+r00 [#222222 #fdfdfd ]" " [#000000 #fdfdfd ]"ASCII: abc                                                                                         "
+r01 [#222222 #fcfdfc ]" " [#000000 #fcfdfc ]"CJK: 日本語の文章 中文 한국어                                                                      "
+r02 [#222222 #fbfcfb ]" " [#000000 #fbfcfb ]"Emoji: 😀 👍🏽 🇦🇹 👨\u{200d}👩\u{200d}👧     " [#222222 #fcfdfc ]"                                                                            "
+r03 [#222222 #fcfcfb ]" " [#000000 #fcfcfb ]"Combining: e\u{301} n\u{303} ö    " [#222222 #fbfcfb ]"                                                                               "
+r04 [#222222 #fdfdfd ]" " [#000000 #fdfdfd ]"Box: ┌──┐ │██│ └──┘                                                                                "
 r05 blank x1
 r06 blank x1
 r07 blank x1

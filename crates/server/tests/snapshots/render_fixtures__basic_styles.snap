@@ -3,16 +3,16 @@ source: crates/server/tests/render_fixtures.rs
 expression: styles(& r.grid)
 ---
 r00 blank x1
-r01 [#222222 #ffffff ]" " [#222222 #ffffff B]"Hello" [#222222 #ffffff ]" " [#222222 #ffffff B]"glyph" [#222222 #ffffff ]"         " [#222222 #212121 ]" " [#222222 #ffffff ]"   " [#222222 #232323 ]" " [#222222 #ffffff ]"                                                                          "
+r01 [#222222 #fdfdfd ]" " [#222222 #fdfdfd B]"Hello" [#222222 #fdfdfd ]" " [#222222 #fdfdfd B]"glyph" [#222222 #fdfdfd ]"                                                                                        "
 r02 blank x1
-r03 [#222222 #ffffff ]" A paragraph with " [#222222 #ffffff B]"bold" [#222222 #ffffff ]", " [#222222 #ffffff I]"italic" [#222222 #ffffff ]", " [#222222 #ffffff U]"underline" [#222222 #ffffff ]", " [#222222 #ffffff S]"struck" [#222222 #ffffff ]" and a " [#0066cc #ffffff U L1]"link" [#222222 #ffffff ]".                                       "
-r04 blank x1
-r05 [#222222 #ffffff ]"    • First item                                                                                    "
-r06 [#222222 #ffffff ]"    • Second item with " [#0066cc #ffffff U L2]"another" [#0066cc #ffffff ]" " [#0066cc #ffffff U L2]"link" [#0066cc #ffffff ]"                                                                 "
-r07 blank x1
-r08 [#222222 #ffffff ]" " [#111111 #e5e5e5 ]"──────────────────────────────────────────────────────────────────────────────────────────────────" [#222222 #ffffff ]" "
+r03 [#222222 #fefefe ]" A paragraph with " [#222222 #fefefe B]"bold" [#222222 #fefefe ]", " [#222222 #fefefe I]"itali" [#222222 #fdfdfd I]"c" [#222222 #fdfdfd ]"," [#222222 #fefefe ]" " [#222222 #fefefe U]"underline" [#222222 #fefefe ]"," [#222222 #fdfdfd ]" " [#222222 #fdfdfd S]"struc" [#222222 #fdfefd S]"k" [#222222 #fdfefd ]" and a" [#222222 #fcfefd ]" " [#0066cc #fcfefd U L1]"link" [#222222 #fcfefd ]".                                       "
+r04 blank x6
+r05 [#222222 #fefefe ]"   " [#222222 #fdfdfd ]" • First item                                                                                    "
+r06 [#222222 #fefefe ]"   " [#222222 #fdfdfd ]" • Second item with" [#222222 #fafdfd ]" " [#0066cc #fafdfd U L2]"another" [#0066cc #fafdfd ]" " [#0066cc #fafdfd U L2]"link" [#0066cc #fafdfd ]"                                                                 "
+r07 blank x3
+r08 [#222222 #fefefe ]" " [#eeeeee #989898 ]"──────────────────────────────────────────────────────────────────────────────────────────────────" [#222222 #fafdfd ]" "
 r09 blank x1
-r10 [#222222 #ffffff ]" " [#888888 #ffffff ]"Dim footer text                                                                                    "
+r10 [#222222 #fefefe ]" " [#888888 #fefefe ]"Dim footer text                                                                                    "
 r11 blank x1
 r12 blank x1
 r13 blank x1

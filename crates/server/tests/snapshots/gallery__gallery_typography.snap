@@ -1,0 +1,34 @@
+---
+source: crates/server/tests/gallery.rs
+expression: r.grid.dump_text()
+---
+
+    Typography test
+
+    Body text at 16px with a link, bold, italic, underline, deleted, inserted, marked and
+     inline code. Press Ctrl+K.
+
+    Larger text at 22px follows the same flow and should still read as one clean line of text.
+
+    Small print at 12px, which is below a cell's height, so several of these lines would
+    collide in a naive renderer.
+
+    Tiny text at 10px: the quick brown fox jumps over the lazy dog.
+
+
+    Heading two
+
+    Heading three
+
+    Colours: red green blue muted grey.
+       • Bullet one
+       • Bullet two with a second link
+            ◦ Nested bullet
+            ◦ Another nested
+       • Bullet three
+
+      1. First
+      2. Second
+      3. Third
+
+    │  A quotation set off from the text with a border. It continues onto a second line so

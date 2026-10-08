@@ -1,0 +1,34 @@
+---
+source: crates/server/tests/gallery.rs
+expression: r.grid.dump_text()
+---
+
+                                                                   ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+   How terminal browsers render the web                              Contents
+                                                                     Text first
+   By A. Writer · 8 Oct 2026 · 6 min read · Share                    Numbers
+                                                                     Code
+   Rendering a web page into a grid of characters is an
+   exercise in compromise. A cell is eight pixels wide and
+   sixteen tall, a paragraph in a proportional font rarely
+   lines up with it, and yet the result can be remarkably            Related
+   readable when the renderer respects the structure of the          Why pixels lie
+   page rather than its pixels.                                      Fast diffs
+                                                                   ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+   Text first
+
+   The first rule is that text should stay text. When a
+   paragraph is drawn as coloured blocks it turns into noise;
+   when it is drawn as characters it stays crisp and
+   selectable, even if its position is only approximate. Links
+   keep their underline and colour, headings keep their
+   weight.
+
+   ▖  Structure survives quantisation; pixels do not.
+   ▟
+
+   Numbers
+   ▄        ▄           ▄    ▄
+      Mode    Bytes/min   CPU
+         ▄▄▄▖   ▄▄▄▄▄▄▄▄▗    ▖
+    Idle    ▐ 0         ▐ 0% ▐

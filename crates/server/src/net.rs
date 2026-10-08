@@ -428,6 +428,7 @@ mod tests {
             cell_px_h: 0,
             graphics: glyph_proto::GraphicsProto::None,
             scheme: Default::default(),
+            page_style: Default::default(),
             images: false,
         });
         assert_eq!((c.cols, c.rows, c.cell_px_w), (400, 3, 64));

@@ -1,0 +1,21 @@
+<!doctype html><meta charset="utf-8"><title>Video</title>
+<style>body{margin:0;padding:20px;font:16px/1.5 system-ui,sans-serif;max-width:820px}video,canvas{display:block;background:#000;border-radius:8px}.row{display:flex;gap:16px;flex-wrap:wrap}
+.controls{margin:8px 0}button{padding:6px 12px}</style>
+<h1>Video and live pixels</h1>
+<p id="state">loading…</p>
+<div class="row">
+ <div><video id="v" src="sample.webm" width="480" height="270" muted loop playsinline></video>
+  <div class="controls"><button id="play">▶ Play</button> <button id="pause">❚❚ Pause</button> <span id="time">0.0s</span></div></div>
+ <div><canvas id="c" width="240" height="135"></canvas><small>live canvas animation</small></div>
+</div>
+<p>Text below the video stays crisp and in place while the pixels above it change every frame.</p>
+<script>
+const v=document.getElementById('v'),st=document.getElementById('state');
+v.addEventListener('playing',()=>st.textContent='video: playing');v.addEventListener('pause',()=>st.textContent='video: paused');
+document.getElementById('play').onclick=()=>v.play();document.getElementById('pause').onclick=()=>v.pause();
+setInterval(()=>document.getElementById('time').textContent=v.currentTime.toFixed(1)+'s',200);
+v.play().catch(()=>st.textContent='video: click Play (autoplay blocked)');
+const c=document.getElementById('c').getContext('2d');let t=0;
+(function f(){t+=.03;const g=c.createLinearGradient(0,0,240,135);g.addColorStop(0,`hsl(${t*60%360},80%,55%)`);g.addColorStop(1,`hsl(${(t*60+120)%360},80%,45%)`);
+c.fillStyle=g;c.fillRect(0,0,240,135);c.fillStyle='#fff';c.beginPath();c.arc(120+80*Math.sin(t*2),68+40*Math.cos(t*3),18,0,7);c.fill();requestAnimationFrame(f)})();
+</script>

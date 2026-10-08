@@ -3,21 +3,21 @@ source: crates/server/tests/render_fixtures.rs
 expression: styles(& r.grid)
 ---
 r00 blank x1
-r01 [#222222 #ffffff ]" " [#444444 #ffffff ]"┌────────────────────────────────────────────────────┐                                             "
-r02 [#222222 #ffffff ]" " [#444444 #ffffff ]"│ " [#000000 #ffffff ]"Card with a border and some text inside.           " [#444444 #ffffff ]"│                                             "
-r03 [#222222 #ffffff ]" " [#444444 #ffffff ]"└────────────────────────────────────────────────────┘                                             "
+r01 [#222222 #ffffff ]" " [#444444 #ffffff ]"┌" [#444444 #fefefe ]"────────────────────────────────────────────────────┐                                             "
+r02 [#222222 #ffffff ]" " [#444444 #ffffff ]"│" [#222222 #fefefe ]" " [#000000 #fefefe ]"Card with a border and some text inside.           " [#444444 #fefefe ]"│                                             "
+r03 [#222222 #ffffff ]" " [#444444 #ffffff ]"└" [#444444 #fefefe ]"────────────────────────────────────────────────────┘                                             "
 r04 blank x1
-r05 [#222222 #ffffff ]" " [#0077aa #ffffff ]"╭────────────────────────────────────────╮                                                         "
-r06 [#222222 #ffffff ]" " [#0077aa #ffffff ]"│ " [#000000 #ffffff ]"Rounded box                            " [#0077aa #ffffff ]"│                                                         "
-r07 [#222222 #ffffff ]" " [#0077aa #ffffff ]"╰────────────────────────────────────────╯                                                         "
-r08 blank x1
-r09 [#222222 #ffffff ]" " [#bfd5df #0965be ]"▀" [#222222 #ffffff ]"        " [#222222 #0462d3 ]" " [#c3d3e7 #0266ca ]"▀" [#222222 #ffffff ]"                                                                                        "
-r10 [#222222 #ffffff ]" " [#222222 #0965be ]"  " [#ffffff #0965be ]"Button   " [#222222 #ffffff ]"                                                                                        "
-r11 [#222222 #ffffff ]" " [#468dd0 #fcfefc ]"▀" [#3c8fdc #fcfefc ]"▀" [#3c8fdd #fdfefc ]"▀" [#3b8fdd #fdfefc ]"▀" [#3c8fde #fdfefc ]"▀" [#3c8edc #fdfefc ]"▀" [#3d8edb #fdfefc ]"▀" [#3d8edc #fdfefc ]"▀" [#3c8fdc #fdfefc ]"▀" [#3c8fdd #fdfefc ]"▀▀                                                                                        "
-r12 [#222222 #ffffff ]" " [#000000 #ffffff ]"┌────┐                                                                                             "
-r13 [#222222 #ffffff ]" " [#000000 #ffffff ]"│" [#000000 #ffffff B]"A" [#000000 #ffffff ]"  " [#000000 #ffffff B]"B" [#000000 #ffffff ]"│                                                                                             "
-r14 [#222222 #ffffff ]" " [#000000 #ffffff ]"│    │                                                                                             "
-r15 [#222222 #ffffff ]" " [#000000 #ffffff ]"└1──2┘                                                                                             "
+r05 [#222222 #ffffff ]" " [#0077aa #effdfd ]"╭" [#0077aa #ffffff ]"────────────────────────────────────────" [#0077aa #edfcfd ]"╮" [#222222 #ffffff ]"                                                         "
+r06 [#222222 #ffffff ]" " [#0077aa #f8fdf8 ]"│" [#222222 #fdfdfd ]" " [#000000 #fdfdfd ]"Rounded box                            " [#0077aa #fdfdfd ]"│                                                         "
+r07 [#222222 #ffffff ]" " [#0077aa #f8fdf8 ]"╰" [#0077aa #fdfdfd ]"────────────────────────────────────────╯                                                         "
+r08 blank x3
+r09 [#222222 #ffffff ]" " [#0565c4 #bbd6e3 ]"▄" [#222222 #0564ca ]"         " [#0266c9 #bed5ec ]"▄" [#76b1da #eff4f3 ]"▖" [#222222 #f8fdf8 ]" " [#222222 #fefeff ]"                                                                                      "
+r10 [#222222 #ffffff ]" " [#222222 #0265c7 ]" " [#222222 #0564ca ]" " [#ffffff #0564ca ]"Button   " [#fafcfa #7eb1df ]"▐" [#222222 #f8fdf8 ]" " [#222222 #fefeff ]"                                                                                      "
+r11 [#222222 #ffffff ]" " [#fcfefc #468acb ]"▄" [#fcfdfc #3f8bd5 ]"▄▄" [#fcfdfc #3f8bd6 ]"▄▄" [#fcfdfc #408bd5 ]"▄▄▄▄" [#fcfdfc #3f8bd6 ]"▄" [#fcfdfc #3f8bd5 ]"▄" [#fcfbf8 #95c2e0 ]"▟" [#222222 #f8fdf8 ]" " [#222222 #fefeff ]"                                                                                      "
+r12 [#222222 #ffffff ]" " [#000000 #fcfcfc ]"┌────┐                                                                                             "
+r13 [#222222 #ffffff ]" " [#000000 #fcfcfc ]"│" [#000000 #fcfcfc B]"A" [#000000 #fcfcfc ]"  " [#000000 #fcfcfc B]"B" [#000000 #fcfcfc ]"│                                                                                             "
+r14 [#222222 #ffffff ]" " [#000000 #fcfcfc ]"│    │                                                                                             "
+r15 [#222222 #ffffff ]" " [#000000 #fcfcfc ]"└1──2┘                                                                                             "
 r16 blank x1
 r17 blank x1
 r18 blank x1

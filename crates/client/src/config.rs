@@ -22,6 +22,9 @@ pub struct Ui {
     /// What pages see for `prefers-color-scheme`: "auto" (follow $COLORFGBG, else light),
     /// "light" or "dark".
     pub color_scheme: String,
+    /// "terminal" (default): the page is laid out in a one-cell-wide monospace font with one-cell
+    /// line height, so text lands exactly in cells. "faithful": keep the page's own typography.
+    pub page_style: String,
 }
 
 impl Default for Ui {
@@ -35,6 +38,7 @@ impl Default for Ui {
             mouse: true,
             wheel_lines: 3,
             color_scheme: "auto".into(),
+            page_style: "terminal".into(),
         }
     }
 }

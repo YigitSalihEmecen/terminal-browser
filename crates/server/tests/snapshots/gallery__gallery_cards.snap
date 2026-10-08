@@ -1,0 +1,34 @@
+---
+source: crates/server/tests/gallery.rs
+expression: r.grid.dump_text()
+---
+                                                                                      ▗▄▄▄▄▄▄▄▄▄▖
+   Acme   Products  Pricing   Docs                                                    ▟ Sign in ▝
+                                                                                      ▄         ▄
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+
+                                ▖                                  ▗
+      Healthy                   ▐     Degraded ▖                   ▐   Down
+                                ▐                                  ▐
+     API gateway                ▐    Search index                  ▐  Billing worker
+     99.98% uptime over the     ▐    Rebuild in progress,          ▐  Three consecutive
+     last 30 days.              ▐    queries are slower.           ▐  failures.
+     ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖   ▐    ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▖               ▐ ▗▄▖
+     ▝▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▝▄  ▐    ▝▄▄▄▄▄▄▄▄▄▄▄▄▄▟               ▐ ▝▄▟
+     92%              ▐ Open  ▐ ▐    55%           ▗ Details  ▖    ▐  8%           ▐  Restart ▐
+                      ▝      ▄▟ ▐                  ▞          ▞    ▐               ▐          ▟
+   ▖                            ▟  ▖                            ▗  ▝                            ▗
+    ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄    ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▟    ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▟
+
+     ▗▄▄▄▖                      ▐    Pricing                       ▐  Notifications
+     ▐   ▝▖ Ada Lovelace        ▐                                  ▐
+     ▝▄ ▗▄▟                     ▐    Start free, upgrade when      ▐  You have 3 unread
+     “The engine might compose  ▐    you grow.                     ▐  messages and 1 mention.
+     elaborate and scientific   ▐                                  ▐
+     pieces of music.”          ▐    $0 / month                    ▐  [x] Email me
+                                ▐    ▗     ▄▄▄▄▄▄▄▄▖               ▐  [ ] Push
+     Profile           Message  ▐    ▐ Get         ▐ Contact  ▐    ▐  ▄
+                                ▐    ▐ started     ▐               ▐ ▐  Save ▐      ▐  Cancel ▐
+                                ▐    ▝▄▄▄▄▄▄▄▄▄▄▄▄▄▟               ▐ ▝▄      ▟      ▐         ▞
+   ▄                            ▟  ▝                            ▟  ▝                            ▄
+    ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄    ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄    ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄

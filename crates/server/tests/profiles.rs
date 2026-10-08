@@ -15,6 +15,7 @@ fn caps(images: bool) -> ClientCaps {
         cell_px_h: 16,
         graphics: GraphicsProto::None,
         scheme: Default::default(),
+        page_style: Default::default(),
         images,
     }
 }
@@ -138,7 +139,7 @@ async fn pages(s: &Server) -> usize {
         .count()
 }
 
-async fn requests_for(profile: Profile, images: bool) -> Vec<String> {
+async fn requests_for(profile: Profile, images: bool, style: PageStyle) -> Vec<String> {
     let (addr, log) = testserver::serve_dir_logged(fixtures()).await.unwrap();
     let srv = Server::start(ServerCfg {
         profile,
@@ -147,7 +148,10 @@ async fn requests_for(profile: Profile, images: bool) -> Vec<String> {
     })
     .await
     .unwrap();
-    let mut h = srv.open_session(caps(images));
+    let mut h = srv.open_session(ClientCaps {
+        page_style: style,
+        ..caps(images)
+    });
     let mut screen = Screen::default();
     h.tx.send(ClientMsg::Navigate {
         url: format!("http://{addr}/assets.html"),
@@ -168,7 +172,7 @@ async fn lean_blocks_images_fonts_and_trackers_full_does_not() {
         eprintln!("SKIP: no Chromium available");
         return;
     }
-    let lean = requests_for(Profile::Lean, false).await;
+    let lean = requests_for(Profile::Lean, false, PageStyle::Faithful).await;
     assert!(lean.contains(&"/assets.html".to_string()), "{lean:?}");
     assert!(
         !lean.contains(&"/favicon.ico".to_string()),
@@ -188,11 +192,23 @@ async fn lean_blocks_images_fonts_and_trackers_full_does_not() {
     );
 
     // a client that can show images turns image blocking off even in lean
-    let lean_img = requests_for(Profile::Lean, true).await;
+    let lean_img = requests_for(Profile::Lean, true, PageStyle::Faithful).await;
     assert!(lean_img.contains(&"/pixel.png".to_string()), "{lean_img:?}");
     assert!(!lean_img.contains(&"/f.woff2".to_string()), "{lean_img:?}");
 
-    let full = requests_for(Profile::Full, false).await;
+    // Terminal-style pages are laid out in a monospace font, so a page's web fonts are never even
+    // requested, whatever the profile: a bandwidth saving that needs no blocklist.
+    let term = requests_for(Profile::Full, false, PageStyle::Terminal).await;
+    assert!(
+        !term.contains(&"/f.woff2".to_string()),
+        "terminal style still fetched the web font: {term:?}"
+    );
+    assert!(
+        term.contains(&"/pixel.png".to_string()),
+        "images are unaffected: {term:?}"
+    );
+
+    let full = requests_for(Profile::Full, false, PageStyle::Faithful).await;
     for p in ["/pixel.png", "/f.woff2", "/x.js"] {
         assert!(
             full.contains(&p.to_string()),
@@ -406,10 +422,13 @@ async fn images_are_cropped_for_graphics_clients_and_always_halfblocked() {
     // 160×96 css px at (16,48) = 20×6 cells at (2,3)
     assert_eq!((im.rect.x, im.rect.y, im.rect.w, im.rect.h), (2, 3, 20, 6));
     assert_eq!((im.px_w, im.px_h), (160, 96));
-    // ...and the grid has the half-block fallback in the same cells, in the image's colour
-    screen.until(&mut h, |g, _| g.cell(10, 5).g == "▀").await;
-    let c = screen.grid.as_ref().unwrap().cell(10, 5).clone();
-    assert!(c.style.fg.0 > 150 && c.style.fg.1 < 90, "{:?}", c.style);
+    // ...and the grid shows the picture in the same cells regardless: a solid red image is a flat
+    // red cell (a textured one would use quadrant blocks)
+    let reddish = |c: &Cell| {
+        let col = if c.g == " " { c.style.bg } else { c.style.fg };
+        col.0 > 150 && col.1 < 90 && col.2 < 90
+    };
+    screen.until(&mut h, |g, _| reddish(g.cell(10, 5))).await;
 
     // a client with no graphics protocol gets no Image messages at all
     let plain = ClientCaps {

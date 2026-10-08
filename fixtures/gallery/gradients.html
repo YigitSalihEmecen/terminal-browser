@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>Gradients and layers</title>
+<style>
+body{margin:0;padding:20px;font:16px/1.4 system-ui,sans-serif;background:#fff;color:#111}
+.g{height:90px;border-radius:12px;margin:10px 0;color:#fff;font-weight:700;display:flex;align-items:center;padding:0 20px;font-size:22px;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.row{display:flex;gap:12px}.sw{flex:1;height:60px;border-radius:8px}
+.hero{position:relative;height:200px;border-radius:14px;overflow:hidden;background:linear-gradient(120deg,#0f2027,#203a43,#2c5364);color:#fff}
+.hero h1{position:absolute;left:30px;top:40px;margin:0;font-size:36px}.hero p{position:absolute;left:30px;top:100px;margin:0;opacity:.85}
+.hero .glow{position:absolute;right:-40px;top:-40px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,#ffb347,transparent 70%)}
+.glass{position:absolute;right:30px;bottom:20px;padding:10px 18px;border-radius:10px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35)}
+.box{border:2px solid #333;padding:10px;margin:10px 0}.dash{border:2px dashed #c00;padding:10px;margin:10px 0}.dbl{border:4px double #080;padding:10px;margin:10px 0}.round{border:3px solid #06c;border-radius:18px;padding:10px;margin:10px 0}
+.trans{background:rgba(0,0,255,.15);padding:14px;margin:10px 0}.op{opacity:.4;background:#c00;color:#fff;padding:14px}
+hr{border:0;border-top:1px solid #bbb}hr.thick{border-top:4px solid #333}
+</style>
+<h2 style="margin-top:0">Gradients</h2>
+<div class="g" style="background:linear-gradient(90deg,#ff512f,#dd2476)">Linear sunset</div>
+<div class="g" style="background:linear-gradient(90deg,#00c6ff,#0072ff)">Linear ocean</div>
+<div class="g" style="background:radial-gradient(circle at 20% 50%,#f6d365,#fda085)">Radial warm</div>
+<div class="row"><div class="sw" style="background:#e74c3c"></div><div class="sw" style="background:#f1c40f"></div><div class="sw" style="background:#2ecc71"></div><div class="sw" style="background:#3498db"></div><div class="sw" style="background:#9b59b6"></div></div>
+<div class="hero"><div class="glow"></div><h1>Hero headline</h1><p>Text over a gradient with a glowing circle.</p><div class="glass">Glass chip</div></div>
+<h2>Borders and rules</h2>
+<div class="box">solid border box</div><div class="dash">dashed red</div><div class="dbl">double green</div><div class="round">rounded blue</div>
+<hr><hr class="thick">
+<div class="trans">translucent blue over white</div><div class="op">opacity .4 red</div>

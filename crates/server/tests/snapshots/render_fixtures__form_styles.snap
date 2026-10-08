@@ -3,20 +3,20 @@ source: crates/server/tests/render_fixtures.rs
 expression: styles(& r.grid)
 ---
 r00 blank x1
-r01 [#222222 #ffffff ]" " [#000000 #ffffff ]"Name  " [#000000 #ffffff  L1]"[Ada______________]" [#000000 #ffffff ]"                                                                          "
-r02 [#222222 #ffffff ]" " [#000000 #ffffff ]"Search  " [#000000 #ffffff  L2]"[type" [#000000 #ffffff ]" " [#000000 #ffffff  L2]"here" [#000000 #ffffff ]"         " [#000000 #ffffff  L2]"]" [#000000 #ffffff ]"                                                                       "
-r03 blank x1
-r04 [#222222 #ffffff ]" " [#000000 #ffffff  L3]"[" [#000000 #1763ea  L3]"x" [#000000 #ffffff  L3]"]" [#000000 #ffffff ]" Subscribe                                                                                      "
-r05 blank x1
-r06 [#222222 #ffffff ]" " [#000000 #ffffff  L4]"(•)" [#000000 #ffffff ]" One  " [#000000 #ffffff  L5]"(" [#000000 #ffffff ]" " [#000000 #ffffff  L5]")" [#000000 #ffffff ]" Two                                                                                   "
-r07 blank x1
-r08 [#222222 #ffffff ]"        " [#767676 #ffffff ]"┌───────────────────────────────┐                                                           "
-r09 [#222222 #ffffff ]"        " [#767676 #ffffff ]"│" [#000000 #ffffff  L6]"first" [#000000 #ffffff ]" " [#000000 #ffffff  L6]"line" [#000000 #ffffff ]"                     " [#767676 #ffffff ]"│                                                           "
-r10 [#222222 #ffffff ]" " [#000000 #ffffff ]"Notes  " [#767676 #ffffff ]"└───────────────────────────────┘                                                           "
-r11 [#222222 #ffffff ]" " [#000000 #ffffff ]"Pick  " [#000000 #ffffff  L7]"[Beta" [#000000 #ffffff ]" " [#000000 #ffffff  L7]"▾]" [#000000 #ffffff ]"                                                                                     "
+r01 [#222222 #fefefe ]" " [#000000 #fefefe ]"Name  " [#000000 #fefefe  L1]"[Ada______________]" [#000000 #fefefe ]"                                                                          "
+r02 [#222222 #fdfdfd ]" " [#000000 #fdfdfd ]"Search " [#222222 #fefefe ]" " [#000000 #fefefe  L2]"[type" [#000000 #fefefe ]" " [#000000 #fefefe  L2]"here" [#000000 #fefefe ]"         " [#000000 #fefefe  L2]"]" [#000000 #fefefe ]"                                                                       "
+r03 blank x2
+r04 [#222222 #fafdfa ]" " [#000000 #fafdfa  L3]"[x" [#000000 #fdfdfd  L3]"]" [#000000 #fdfdfd ]" Subscribe                                                                                      "
+r05 blank x2
+r06 [#222222 #fbfcfb ]" " [#000000 #fbfcfb  L4]"(•" [#000000 #fdfdfd  L4]")" [#000000 #fdfdfd ]" One  " [#000000 #fdfdfd  L5]"(" [#000000 #fdfdfd ]" " [#000000 #fdfdfd  L5]")" [#000000 #fdfdfd ]" Two                                                                                   "
+r07 blank x2
+r08 [#222222 #fbfcfb ]"        " [#767676 #fbfcfb ]"┌───────────────────────────────┐                                                           "
+r09 [#222222 #fdfdfd ]"       " [#222222 #fefefe ]" " [#767676 #fefefe ]"│" [#000000 #fefefe  L6]"first" [#000000 #fefefe ]" " [#000000 #fefefe  L6]"line" [#000000 #fefefe ]"                     " [#767676 #fefefe ]"│                                                           "
+r10 [#222222 #fdfdfd ]" " [#000000 #fdfdfd ]"Notes  " [#767676 #fdfdfd ]"└───────────────────────────────┘                                                           "
+r11 [#222222 #fdfdfd ]" " [#000000 #fdfdfd ]"Pick  " [#000000 #fdfdfd  L7]"[Beta" [#000000 #fdfdfd ]" " [#000000 #fdfdfd  L7]"▾]" [#000000 #fdfdfd ]"                                                                                     "
 r12 blank x1
-r13 [#222222 #ffffff ]"  " [#000000 #ffffff  L8]"S" [#000000 #ebebeb  L8]"ubmit" [#222222 #ffffff ]"                                                                                            "
-r14 blank x1
+r13 [#222222 #fdfdfd ]" " [#222222 #f6f6f6 ]" " [#000000 #f6f6f6  L8]"Submit" [#000000 #f6f6f6 ]" " [#222222 #fdfdfd ]"                                                                                           "
+r14 blank x3
 r15 blank x1
 r16 blank x1
 r17 blank x1

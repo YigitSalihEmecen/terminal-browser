@@ -33,7 +33,7 @@ impl ProfileCfg {
             Profile::Lean => Self {
                 profile: p,
                 max_fps: 4.0,
-                jpeg_quality: 30,
+                jpeg_quality: 70,
                 cpu_throttle: 1.0,
                 block_images: true,
                 block_fonts: true,
@@ -46,7 +46,7 @@ impl ProfileCfg {
             Profile::Balanced => Self {
                 profile: p,
                 max_fps: 10.0,
-                jpeg_quality: 45,
+                jpeg_quality: 80,
                 cpu_throttle: 1.0,
                 block_images: false,
                 block_fonts: true,
@@ -59,7 +59,7 @@ impl ProfileCfg {
             Profile::Full => Self {
                 profile: p,
                 max_fps: 20.0,
-                jpeg_quality: 60,
+                jpeg_quality: 85,
                 cpu_throttle: 1.0,
                 block_images: false,
                 block_fonts: false,

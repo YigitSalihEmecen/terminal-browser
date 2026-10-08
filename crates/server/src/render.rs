@@ -9,7 +9,8 @@ use glyph_proto::{
 };
 
 use crate::{
-    pixmap::{CellGeom, Pixmap},
+    colour::{self, BoxRec, Kind},
+    pixmap::Pixmap,
     snapshot::{parse_color, parse_px, st, DocView, SnapshotResult},
 };
 
@@ -165,8 +166,10 @@ struct Glyphs {
     owner: Option<OwnerKey>,
     /// Form-control text: fixed width, never truncated or chained.
     fixed: bool,
-    /// Pixel-space rows covered, for the "text zone" mask.
+    /// Cells this run owns (its text extent, rows included).
     zone: CRect,
+    /// Effective CSS background behind the run (ancestors composited).
+    css_bg: Rgb,
 }
 
 struct Item {
@@ -312,6 +315,7 @@ impl Ctx<'_> {
         let mut clip = vec![base_clip; n];
         let mut pos_clip = vec![base_clip; n];
         let mut owner_of = vec![usize::MAX; n];
+        let mut eff_bg = vec![Rgb::WHITE; n];
         for i in 0..n {
             let p = doc.nodes.parent[i];
             let (pc, ppc, pop, pown) = if p >= 0 {
@@ -365,6 +369,18 @@ impl Ctx<'_> {
                     pc_here = out;
                 }
             }
+            let parent_bg = if p >= 0 {
+                eff_bg[p as usize]
+            } else {
+                Rgb::WHITE
+            };
+            eff_bg[i] = match (li >= 0)
+                .then(|| parse_color(v.style(li as usize, st::BG)))
+                .flatten()
+            {
+                Some((c, a)) if a > 0 => c.over(a, parent_bg),
+                _ => parent_bg,
+            };
             opacity[i] = op;
             clip[i] = out;
             pos_clip[i] = pc_here;
@@ -471,7 +487,7 @@ impl Ctx<'_> {
             }
 
             // form controls
-            for g in self.control_glyphs(&v, i, li, b, &first_text, di) {
+            for g in self.control_glyphs(&v, i, li, b, &first_text, di, eff_bg[i]) {
                 let seq = self.next_seq();
                 self.items.push(Item {
                     po,
@@ -573,6 +589,7 @@ impl Ctx<'_> {
                     owner,
                     fixed: false,
                     zone,
+                    css_bg: eff_bg[i],
                 }),
             });
         }
@@ -727,6 +744,7 @@ impl Ctx<'_> {
 
     /// Text for inputs/textarea/select/checkbox/radio, drawn by us because Chromium keeps their
     /// content in the user-agent shadow tree (no text boxes).
+    #[allow(clippy::too_many_arguments)]
     fn control_glyphs(
         &self,
         v: &DocView,
@@ -735,6 +753,7 @@ impl Ctx<'_> {
         b: Rf,
         first_text: &HashMap<usize, usize>,
         di: usize,
+        css_bg: Rgb,
     ) -> Vec<Glyphs> {
         let tag = v.tag(i);
         let (c0, c1) = (
@@ -825,6 +844,7 @@ impl Ctx<'_> {
                             attrs: Attrs::default(),
                             owner: Some((di, i)),
                             fixed: true,
+                            css_bg,
                             zone: CRect {
                                 c0,
                                 r0: top + k as i32,
@@ -879,6 +899,7 @@ impl Ctx<'_> {
             attrs: Attrs::default(),
             owner,
             fixed: true,
+            css_bg,
             zone: CRect {
                 c0,
                 r0: (b.y0 / self.m.ch).floor() as i32,
@@ -973,7 +994,9 @@ impl Ctx<'_> {
         };
         let mut grid = Grid::new(m.cols, m.rows, Style::new(default_fg, canvas));
         let mut kind = vec![Kind::Plain; (cols * rows) as usize];
-        let mut zone = vec![false; (cols * rows) as usize];
+        let mut cell_owner: Vec<i32> = vec![-1; (cols * rows) as usize];
+        let mut boxes: Vec<BoxRec> = Vec::new();
+        let mut halo = vec![false; (cols * rows) as usize];
         let idx = |c: i32, r: i32| (r * cols + c) as usize;
         let mut images = Vec::new();
 
@@ -992,6 +1015,7 @@ impl Ctx<'_> {
                                 };
                                 grid.clear(ux, uy, s);
                                 kind[idx(x, y)] = Kind::Plain;
+                                cell_owner[idx(x, y)] = -1;
                             } else {
                                 let bg = color.over(*alpha, grid.cell(ux, uy).style.bg);
                                 grid.restyle(ux, uy, |s| s.bg = bg);
@@ -1005,7 +1029,16 @@ impl Ctx<'_> {
                     color,
                     sides,
                     round,
-                } => draw_border(&mut grid, &mut kind, &m, *px, *r, *color, *sides, *round),
+                } => {
+                    draw_border(&mut grid, &mut kind, &m, *px, *r, *color, *sides, *round);
+                    // The drawn glyphs stand for this border; its pixel line, which usually
+                    // straddles a cell boundary, must not be drawn a second time next to them.
+                    for y in (r.r0 - 1).max(0)..(r.r1 + 1).min(rows) {
+                        for x in (r.c0 - 1).max(0)..(r.c1 + 1).min(cols) {
+                            halo[idx(x, y)] = true;
+                        }
+                    }
+                }
                 K::Image { r, owner } => {
                     let link = owner.and_then(|o| ids.get(&o)).copied().unwrap_or(0);
                     for y in r.r0..r.r1 {
@@ -1033,6 +1066,7 @@ impl Ctx<'_> {
                                 },
                             );
                             kind[idx(x, y)] = Kind::Image;
+                            cell_owner[idx(x, y)] = -1;
                         }
                     }
                     if (r.c1 - r.c0) >= 2 && (r.r1 - r.r0) >= 1 {
@@ -1050,14 +1084,22 @@ impl Ctx<'_> {
                 }
                 K::Glyphs(g) => {
                     let link = g.owner.and_then(|o| ids.get(&o)).copied().unwrap_or(0);
-                    paint_glyphs(&mut grid, &mut kind, &mut zone, &m, g, link);
+                    paint_glyphs(
+                        &mut grid,
+                        &mut kind,
+                        &mut cell_owner,
+                        &mut boxes,
+                        &m,
+                        g,
+                        link,
+                    );
                 }
             }
         }
 
         // 5. colours from pixels
         if let Some(p) = pix {
-            self.colour_from_pixels(&mut grid, &kind, &zone, p);
+            colour::apply(&mut grid, &kind, &cell_owner, &halo, &boxes, p, &m);
         }
 
         // blank cells carry no foreground: normalising keeps equal-looking cells in one span
@@ -1194,110 +1236,6 @@ impl Ctx<'_> {
             }
         }
     }
-
-    fn colour_from_pixels(&self, grid: &mut Grid, kind: &[Kind], zone: &[bool], p: &Pixmap) {
-        let m = self.m;
-        let geom = CellGeom {
-            cw: m.cw,
-            ch: m.ch,
-            sx: p.w as f64 / m.px_w(),
-            sy: p.h as f64 / m.px_h(),
-        };
-        // Neighbour hysteresis: JPEG noise makes near-identical backgrounds differ by a few
-        // levels; snapping to the left/upper neighbour keeps spans (and diffs) long.
-        const SNAP: u32 = 2500;
-        let mut bgs = vec![Rgb::BLACK; m.cols as usize * m.rows as usize];
-        for y in 0..m.rows {
-            for x in 0..m.cols {
-                let i = y as usize * m.cols as usize + x as usize;
-                let cur = grid.cell(x, y).clone();
-                if cur.is_cont() {
-                    let head = bgs[i - 1];
-                    grid.restyle(x, y, |s| s.bg = head);
-                    bgs[i] = head;
-                    continue;
-                }
-                let text = (kind[i] == Kind::Glyph).then_some(cur.style.fg);
-                let c = p.cell(x, y, &geom, text);
-                let snap = |c: Rgb| -> Rgb {
-                    if x > 0 && kind[i - 1] != Kind::Image && c.dist2(bgs[i - 1]) < SNAP {
-                        bgs[i - 1]
-                    } else if y > 0 && c.dist2(bgs[i - m.cols as usize]) < SNAP {
-                        bgs[i - m.cols as usize]
-                    } else {
-                        c
-                    }
-                };
-                let link = cur.style.link;
-                match kind[i] {
-                    Kind::Glyph => {
-                        let bg = snap(c.dominant);
-                        bgs[i] = bg;
-                        grid.restyle(x, y, |s| s.bg = bg);
-                    }
-                    Kind::Image => {
-                        bgs[i] = c.bottom;
-                        grid.put(
-                            x,
-                            y,
-                            "▀",
-                            Style {
-                                fg: c.top,
-                                bg: c.bottom,
-                                attrs: Attrs::default(),
-                                link,
-                            },
-                        );
-                    }
-                    Kind::Plain => {
-                        if !zone[i] && c.top.dist2(c.bottom) > 30000 {
-                            bgs[i] = c.bottom;
-                            grid.put(
-                                x,
-                                y,
-                                "▀",
-                                Style {
-                                    fg: c.top,
-                                    bg: c.bottom,
-                                    attrs: Attrs::default(),
-                                    link,
-                                },
-                            );
-                        } else {
-                            let bg = snap(c.dominant);
-                            bgs[i] = bg;
-                            grid.put(
-                                x,
-                                y,
-                                " ",
-                                Style {
-                                    fg: cur.style.fg,
-                                    bg,
-                                    attrs: Attrs::default(),
-                                    link,
-                                },
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        // keep text legible where the CSS colour and the real pixels disagree (text over images)
-        for y in 0..m.rows {
-            for x in 0..m.cols {
-                let c = grid.cell(x, y);
-                if c.g != " " && c.g != "▀" && !c.is_cont() && c.style.fg.dist2(c.style.bg) < 1500
-                {
-                    let fg = if luma(c.style.bg) > 128 {
-                        Rgb(0x11, 0x11, 0x11)
-                    } else {
-                        Rgb(0xee, 0xee, 0xee)
-                    };
-                    grid.restyle(x, y, |s| s.fg = fg);
-                }
-            }
-        }
-    }
 }
 
 fn glyphs(it: &Item) -> &Glyphs {
@@ -1312,13 +1250,6 @@ fn glyphs_mut(it: &mut Item) -> &mut Glyphs {
         K::Glyphs(g) => g,
         _ => unreachable!("indexed as glyphs"),
     }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Kind {
-    Plain,
-    Glyph,
-    Image,
 }
 
 fn luma(c: Rgb) -> u32 {
@@ -1359,18 +1290,33 @@ fn field(body: &str, width: usize, placeholder: bool) -> String {
 fn paint_glyphs(
     grid: &mut Grid,
     kind: &mut [Kind],
-    zone: &mut [bool],
+    owner: &mut [i32],
+    boxes: &mut Vec<BoxRec>,
     m: &Metrics,
     g: &Glyphs,
     link: u32,
 ) {
     let (cols, rows) = (m.cols as i32, m.rows as i32);
-    // text-zone mask (pixel extent of the box) so pixel halves never paint stroke noise there
-    for y in g.zone.r0.max(0)..g.zone.r1.min(rows) {
-        for x in (g.zone.c0.min(g.col) - 1).max(0)
-            ..(g.zone.c1.max(g.col + str_width(&g.text) as i32) + 1).min(cols)
-        {
-            zone[(y * cols + x) as usize] = true;
+    // The run owns its text extent (plus one cell either side: italic/bold overhang), so its
+    // background is estimated once for all of those cells and no stroke noise reaches the
+    // non-text colour stage.
+    let c0 = (g.zone.c0.min(g.col) - 1).max(0);
+    let c1 = (g.zone.c1.max(g.col + str_width(&g.text) as i32) + 1).min(cols);
+    let (r0, r1) = (g.zone.r0.max(0), g.zone.r1.min(rows));
+    if c1 > c0 && r1 > r0 {
+        let id = boxes.len() as i32;
+        boxes.push(BoxRec {
+            c0,
+            r0,
+            c1,
+            r1,
+            fg: g.fg,
+            css_bg: g.css_bg,
+        });
+        for y in r0..r1 {
+            for x in c0..c1 {
+                owner[(y * cols + x) as usize] = id;
+            }
         }
     }
     let mut x = g.col;

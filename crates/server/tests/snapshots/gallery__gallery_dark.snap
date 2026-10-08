@@ -1,0 +1,24 @@
+---
+source: crates/server/tests/gallery.rs
+expression: r.grid.dump_text()
+---
+
+
+    Dark page
+
+    Light text on dark backgrounds is where "dominant colour" estimation goes wrong.
+
+    ╭──────────────────────────────────────────────────────────────────────────────────────────╮
+    │  open ▟ Fix the renderer                                                                 │
+    │                                                                                          │
+    │ See issue #42 and run cargo test.                                                        │
+    │                                                                                          │
+    │ [search…______________]  Go                                                              │
+    ╰──────────────────────────────────────────────────────────────────────────────────────────╯
+
+    ╭──────────────────────────────────────────────────────────────────────────────────────────╮
+    │ Second card                                                                              │
+    │                                                                                          │
+    │ Muted text on a slightly lighter surface.                                                │
+    │                                                                                          │
+    ╰──────────────────────────────────────────────────────────────────────────────────────────╯

@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>Sticky and fixed</title>
+<style>
+body{margin:0;font:16px/1.6 system-ui,sans-serif;color:#222}
+.top{position:fixed;top:0;left:0;right:0;height:48px;background:#111;color:#fff;display:flex;align-items:center;padding:0 20px;gap:18px;z-index:10;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.top a{color:#9ecbff;text-decoration:none}.sp{flex:1}
+nav.side{position:sticky;top:60px;float:left;width:160px;margin:60px 20px 0 20px;background:#f3f4f6;border-radius:8px;padding:10px}
+nav.side a{display:block;color:#0b57d0;padding:3px 0}
+main{margin-left:220px;padding:70px 24px 120px}
+.cookie{position:fixed;left:20px;right:20px;bottom:16px;background:#fff;border:1px solid #ccc;border-radius:10px;padding:12px 16px;box-shadow:0 4px 16px rgba(0,0,0,.3);display:flex;gap:12px;align-items:center;z-index:20}
+.cookie button{padding:6px 14px;border:0;border-radius:6px;background:#0b57d0;color:#fff}
+.totop{position:fixed;right:26px;bottom:90px;width:44px;height:44px;border-radius:50%;background:#0b57d0;color:#fff;text-align:center;line-height:44px;z-index:15}
+section{margin:0 0 40px}
+</style>
+<div class="top"><b>Sticky site</b><a href="#s1">One</a><a href="#s2">Two</a><a href="#s3">Three</a><span class="sp"></span><a href="#">Log in</a></div>
+<nav class="side"><b>On this page</b><a href="#s1">Section one</a><a href="#s2">Section two</a><a href="#s3">Section three</a><a href="#s4">Section four</a></nav>
+<main>
+<section id="s1"><h2>Section one</h2><p>Scroll this page: the black header, the left nav and the cookie banner must stay put, and the text must pass under the header without leaving ghosts of old content behind it.</p><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p><p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p></section>
+<section id="s2"><h2>Section two</h2><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p><p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p><p>Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium.</p></section>
+<section id="s3"><h2>Section three</h2><p>Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.</p><p>Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit.</p><p>Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam.</p></section>
+<section id="s4"><h2>Section four</h2><p>At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti.</p><p>Temporibus autem quibusdam et aut officiis debitis aut rerum necessitatibus saepe eveniet.</p><p>Itaque earum rerum hic tenetur a sapiente delectus.</p></section>
+</main>
+<div class="totop">↑</div>
+<div class="cookie"><span>We use cookies to improve your experience.</span><span style="flex:1"></span><button>Accept</button></div>
