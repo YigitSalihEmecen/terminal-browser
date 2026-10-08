@@ -190,6 +190,21 @@ pub async fn run(o: Opts) -> Result<()> {
                     url: format!("http://{addr}/{arg}"),
                 })?;
             }
+            "rate" => {
+                // frames per second the client actually receives over the next `arg` seconds
+                let secs = f(arg)?;
+                let (f0, b0) = {
+                    let v = view.lock().unwrap();
+                    (v.frames, v.bytes_runs)
+                };
+                tokio::time::sleep(Duration::from_secs_f64(secs)).await;
+                let v = view.lock().unwrap();
+                println!(
+                    "{:.1} frames/s, {:.1} KB/s of runs (uncompressed)",
+                    (v.frames - f0) as f64 / secs,
+                    (v.bytes_runs - b0) as f64 / secs / 1024.0
+                );
+            }
             "snap" => {
                 n += 1;
                 let name = if arg.is_empty() {

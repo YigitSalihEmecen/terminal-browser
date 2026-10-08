@@ -1,7 +1,10 @@
 //! One browser tab: a task that owns a CDP session, keeps the page's viewport in sync with the
 //! client, turns paint activity into rendered frames, and executes input.
 
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use glyph_proto::{
@@ -140,6 +143,18 @@ struct Tab {
     images_sent: std::collections::HashMap<u32, u64>,
     pending_crops: Option<Vec<Crop>>,
     interactive_until: Instant,
+    /// Last pixel-mode frame, kept for the live-pixel fast path.
+    last: Option<Rendered>,
+    /// The screenshot `last` was rendered from: the baseline for spotting non-live changes.
+    last_pix: Option<Arc<Pixmap>>,
+    /// A verified screenshot handed from the live path to the full refresh that follows it.
+    pre_shot: Option<String>,
+    /// Screencast delivers full-size frames (live video on the page) instead of the tiny signal.
+    big_cast: bool,
+    /// Newest full-size screencast frame, consumed by the live path.
+    frame_data: Option<String>,
+    /// Something other than a repaint happened since the last full refresh (DOM, scroll, input).
+    full_dirty: bool,
 }
 
 /// The injected page agent (animation/caret killer, terminal-native page style, scroll helper,
@@ -202,6 +217,12 @@ pub fn spawn(
         out,
         frame_scroll: None,
         pending_ack: None,
+        last: None,
+        last_pix: None,
+        pre_shot: None,
+        big_cast: false,
+        frame_data: None,
+        full_dirty: true,
         dirty_since: None,
         last_event: Instant::now(),
         last_refresh: Instant::now() - Duration::from_secs(10),
@@ -273,6 +294,8 @@ struct Frame {
     metadata: FrameMeta,
     #[serde(rename = "sessionId")]
     session_id: i64,
+    #[serde(default)]
+    data: String,
 }
 
 #[derive(Deserialize)]
@@ -336,12 +359,14 @@ impl Tab {
     /// the lowest quality: full-size ones cost Chromium encode time and CDP bandwidth for nothing.
     async fn start_screencast(&self) -> Result<()> {
         let _ = self.sess.send("Page.stopScreencast", json!({})).await;
-        self.sess
-            .send(
-                "Page.startScreencast",
-                json!({ "format": "jpeg", "quality": 10, "maxWidth": 32, "maxHeight": 32, "everyNthFrame": 1 }),
-            )
-            .await
+        // normally a tiny frame: only the "something painted" signal matters. With video on the
+        // page the frames themselves are the pixel source (pushed, so no capture round trip)
+        let params = if self.big_cast {
+            json!({ "format": "jpeg", "quality": self.cfg.profile.jpeg_quality, "maxWidth": self.m.px_w() as u32, "maxHeight": self.m.px_h() as u32, "everyNthFrame": 1 })
+        } else {
+            json!({ "format": "jpeg", "quality": 10, "maxWidth": 32, "maxHeight": 32, "everyNthFrame": 1 })
+        };
+        self.sess.send("Page.startScreencast", params).await
     }
 
     async fn run(mut self, start_url: Option<String>) -> Result<()> {
@@ -379,6 +404,7 @@ impl Tab {
     /// An input just changed the page: refresh as soon as the rate limit allows, and allow a
     /// higher rate for a moment (scrolling should feel fluid even in the `lean` profile).
     fn mark_urgent(&mut self) {
+        self.full_dirty = true;
         let now = Instant::now();
         self.interactive_until = now + INTERACTIVE;
         self.last_event = now - DEBOUNCE;
@@ -386,8 +412,20 @@ impl Tab {
     }
 
     fn mark_dirty(&mut self) {
+        self.full_dirty = true;
+        self.mark_paint();
+    }
+
+    /// Pixels changed (screencast signal), nothing else known to have: live regions can take the
+    /// cheap path.
+    fn mark_paint(&mut self) {
         let now = Instant::now();
-        self.last_event = now;
+        // with video on screen paints never stop; letting each one extend the quiet period would
+        // hold the refresh back until MAX_STALE, so only the first paint of a burst counts
+        let live = self.last.as_ref().is_some_and(|l| !l.live.is_empty());
+        if !live || self.dirty_since.is_none() {
+            self.last_event = now;
+        }
         self.dirty_since.get_or_insert(now);
     }
 
@@ -397,8 +435,12 @@ impl Tab {
         }
         let since = self.dirty_since?;
         let now = Instant::now();
+        let live = self.mode == RenderMode::Pixel
+            && self.last.as_ref().is_some_and(|l| !l.live.is_empty());
         let cap = if now < self.interactive_until {
             self.fps.min(INTERACTIVE_FPS)
+        } else if live {
+            self.fps.min(self.cfg.profile.live_fps)
         } else {
             self.fps.min(self.cfg.profile.max_fps)
         };
@@ -411,6 +453,14 @@ impl Tab {
     async fn refresh(&mut self) -> Result<()> {
         self.dirty_since = None;
         let t0 = Instant::now();
+        if !self.full_dirty && self.mode == RenderMode::Pixel {
+            match self.refresh_live().await {
+                Ok(Some(r)) => return self.emit(r, t0).await,
+                Ok(None) => {}
+                Err(e) => tracing::debug!("live refresh failed: {e:#}"),
+            }
+        }
+        self.full_dirty = false;
         // meta first, so the client never shows a frame with the previous page's title/url
         if let Ok(Some((title, url))) = self.read_meta().await {
             if title != self.title {
@@ -426,7 +476,25 @@ impl Tab {
             RenderMode::Pixel => self.render_pixel().await?,
             RenderMode::Text => self.render_text().await?,
         };
+        self.last = (self.mode == RenderMode::Pixel).then(|| rendered.clone());
+        let want_big = self.last.as_ref().is_some_and(|l| !l.live.is_empty());
+        if want_big != self.big_cast {
+            self.big_cast = want_big;
+            self.frame_data = None;
+            let _ = self.start_screencast().await;
+        }
+        self.emit(rendered, t0).await
+    }
+
+    /// Send a finished frame to the client and release the screencast throttle.
+    async fn emit(&mut self, rendered: Rendered, t0: Instant) -> Result<()> {
         self.last_refresh = Instant::now();
+        tracing::debug!(
+            "refresh {:?} live={} fps={}",
+            t0.elapsed(),
+            rendered.live.len(),
+            self.fps
+        );
         self.publish_images();
         let m = &self.cfg.metrics;
         m.refreshes
@@ -453,6 +521,69 @@ impl Tab {
                 .await;
         }
         Ok(())
+    }
+
+    /// Cheap refresh for pages whose only change is video/canvas pixels: one screenshot, no DOM
+    /// snapshot, only the live rectangles recoloured in the previous frame. `None` when the
+    /// preconditions fail (nothing live, the page scrolled), and the caller does a full refresh.
+    async fn refresh_live(&mut self) -> Result<Option<Rendered>> {
+        let (Some(last), Some(base)) = (
+            self.last.as_ref().filter(|l| !l.live.is_empty()),
+            self.last_pix.clone(),
+        ) else {
+            return Ok(None);
+        };
+        let at = (last.page.scroll_x, last.page.scroll_y);
+        let same = |a: (f64, f64)| (a.0 - at.0).abs() < 1.0 && (a.1 - at.1).abs() < 1.0;
+        // a pushed screencast frame carries its own scroll offset; otherwise take a screenshot
+        // between two scroll reads
+        let pushed = self
+            .frame_data
+            .take()
+            .filter(|_| self.frame_scroll.is_some_and(same));
+        let data = match pushed {
+            Some(d) => d,
+            None => {
+                if !same(self.read_scroll().await?) {
+                    return Ok(None);
+                }
+                #[derive(Deserialize)]
+                struct R {
+                    data: String,
+                }
+                let quality = self.cfg.profile.jpeg_quality;
+                let r: R = self
+                    .sess
+                    .call(
+                        "Page.captureScreenshot",
+                        json!({ "format": "jpeg", "quality": quality, "fromSurface": true }),
+                    )
+                    .await?;
+                if !same(self.read_scroll().await?) {
+                    return Ok(None);
+                }
+                r.data
+            }
+        };
+        let (mut out, m) = (last.clone(), self.m);
+        let (out, data) = tokio::task::spawn_blocking(move || {
+            let pix = Pixmap::decode_jpeg(&crate::b64::decode(&data).ok()?).ok()?;
+            if crate::colour::changed_outside(&base, &pix, &out.live, &m) {
+                return Some((None, data));
+            }
+            for rect in out.live.clone() {
+                crate::colour::recolour_live(&mut out.grid, rect, &pix, &m);
+            }
+            Some((Some(out), data))
+        })
+        .await?
+        .unzip();
+        // something besides the live pixels changed (a label, the layout): the full refresh continues
+        // from this screenshot instead of taking another
+        if matches!(out, Some(None)) {
+            self.pre_shot = data;
+        }
+        Ok(out.flatten())
     }
 
     /// Scroll offset once the compositor has committed the main thread's state (two animation
@@ -486,20 +617,36 @@ impl Tab {
         let quality = self.cfg.profile.jpeg_quality;
         let mut shot: Option<String> = None;
         let mut snap: Option<SnapshotResult> = None;
+        let mut pre = self.pre_shot.take();
         for attempt in 0..3 {
-            let s0 = self.settled_scroll().await?;
-            // the two captures run concurrently; the scroll reads around them prove they agree
             #[derive(Deserialize)]
             struct R {
                 data: String,
             }
-            let (raw, r) = tokio::join!(
-                capture::snapshot_raw(&self.sess),
-                self.sess.call::<R>(
-                    "Page.captureScreenshot",
-                    json!({ "format": "jpeg", "quality": quality, "fromSurface": true })
+            let (s0, raw, r) = if let Some(data) = pre.take() {
+                // the live path already took (and scroll-verified) a screenshot: only the DOM is missing
+                let at = self
+                    .last
+                    .as_ref()
+                    .map(|l| (l.page.scroll_x, l.page.scroll_y))
+                    .unwrap_or_default();
+                (
+                    at,
+                    capture::snapshot_raw(&self.sess).await,
+                    Ok::<R, anyhow::Error>(R { data }),
                 )
-            );
+            } else {
+                let s0 = self.settled_scroll().await?;
+                // the two captures run concurrently; the scroll reads around them prove they agree
+                let (raw, r) = tokio::join!(
+                    capture::snapshot_raw(&self.sess),
+                    self.sess.call::<R>(
+                        "Page.captureScreenshot",
+                        json!({ "format": "jpeg", "quality": quality, "fromSurface": true })
+                    )
+                );
+                (s0, raw, r)
+            };
             let (raw, r) = (raw?, r?);
             let s1 = self.read_scroll().await?;
             let parsed = tokio::task::spawn_blocking(move || {
@@ -534,8 +681,8 @@ impl Tab {
             Default::default()
         };
         let (tab, crop_quality) = (self.id, self.cfg.profile.jpeg_quality.max(55));
-        let (rendered, crops) =
-            tokio::task::spawn_blocking(move || -> Result<(Rendered, Vec<Crop>)> {
+        let (rendered, crops, pix) = tokio::task::spawn_blocking(
+            move || -> Result<(Rendered, Vec<Crop>, Option<Pixmap>)> {
                 let pix = shot
                     .and_then(|b64| crate::b64::decode(&b64).ok())
                     .and_then(|b| Pixmap::decode_jpeg(&b).ok());
@@ -544,9 +691,11 @@ impl Tab {
                     (Some(p), true) => crop_images(p, &m, tab, &r.images, crop_quality, &known),
                     _ => Vec::new(),
                 };
-                Ok((r, crops))
-            })
-            .await??;
+                Ok((r, crops, pix))
+            },
+        )
+        .await??;
+        self.last_pix = pix.map(Arc::new);
         self.pending_crops = Some(crops);
         Ok(rendered)
     }
@@ -615,6 +764,7 @@ impl Tab {
             grid,
             regions,
             images: Vec::new(),
+            live: Vec::new(),
             page: PageInfo {
                 scroll_x: 0.0,
                 scroll_y: self.text_scroll as f64,
@@ -661,15 +811,21 @@ impl Tab {
                         return;
                     }
                     self.frame_scroll = Some((f.metadata.sx, f.metadata.sy));
+                    if self.big_cast {
+                        self.frame_data = Some(f.data);
+                    }
                     // Chromium counts frames in flight: every frame must be acked exactly once,
                     // including ones we superseded before rendering.
+                    // (not awaited: at 60 frames/s a round trip per frame would starve the refresh timer)
                     if let Some(old) = self.pending_ack.replace(f.session_id) {
-                        let _ = self
-                            .sess
-                            .send("Page.screencastFrameAck", json!({ "sessionId": old }))
-                            .await;
+                        let sess = self.sess.clone();
+                        tokio::spawn(async move {
+                            let _ = sess
+                                .send("Page.screencastFrameAck", json!({ "sessionId": old }))
+                                .await;
+                        });
                     }
-                    self.mark_dirty();
+                    self.mark_paint();
                 }
             }
             "Page.frameStartedLoading" => {

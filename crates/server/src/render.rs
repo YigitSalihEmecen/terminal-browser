@@ -40,10 +40,13 @@ pub struct PageInfo {
     pub content_h: f64,
 }
 
+#[derive(Clone)]
 pub struct Rendered {
     pub grid: Grid,
     pub regions: Vec<Region>,
     pub images: Vec<CellRect>,
+    /// `<video>` / `<canvas>` rectangles: pixels that change without the DOM changing.
+    pub live: Vec<CellRect>,
     pub page: PageInfo,
 }
 
@@ -218,6 +221,7 @@ struct Ctx<'a> {
     canvas: Option<Rgb>,
     page: PageInfo,
     seq: u32,
+    live: Vec<CellRect>,
 }
 
 /// Render a snapshot. `pix` (the screencast frame) supplies backgrounds and image halves.
@@ -229,6 +233,7 @@ pub fn render(snap: &SnapshotResult, pix: Option<&Pixmap>, m: &Metrics) -> Rende
         canvas: None,
         page: PageInfo::default(),
         seq: 0,
+        live: Vec::new(),
     };
     if !snap.documents.is_empty() {
         let vp = Rf {
@@ -476,6 +481,9 @@ impl Ctx<'_> {
             if is_img && !visible_rect.is_empty() {
                 let r = cell_rect(self.m, visible_rect).clamp(self.m.cols, self.m.rows);
                 if !r.is_empty() {
+                    if matches!(tag, "VIDEO" | "CANVAS") {
+                        self.live.push(r.to_cell_rect());
+                    }
                     let owner = (owner_of[i] != usize::MAX).then_some((di, owner_of[i]));
                     let seq = self.next_seq();
                     self.items.push(Item {
@@ -1164,6 +1172,7 @@ impl Ctx<'_> {
             grid,
             regions,
             images,
+            live: self.live,
             page: self.page,
         }
     }

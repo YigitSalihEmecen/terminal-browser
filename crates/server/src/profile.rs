@@ -10,6 +10,8 @@ use crate::cdp::Session;
 pub struct ProfileCfg {
     pub profile: Profile,
     pub max_fps: f32,
+    /// Frame-rate ceiling while video/canvas pixels are on screen (cheap refreshes: no DOM snapshot).
+    pub live_fps: f32,
     pub jpeg_quality: u8,
     /// `Emulation.setCPUThrottlingRate` (1 = off). Off in every profile: measured on Chrome 154,
     /// throttling makes an *idle* page burn 55-85 % of a core (the throttle duty-cycles the main
@@ -33,6 +35,7 @@ impl ProfileCfg {
             Profile::Lean => Self {
                 profile: p,
                 max_fps: 4.0,
+                live_fps: 6.0,
                 jpeg_quality: 70,
                 cpu_throttle: 1.0,
                 block_images: true,
@@ -46,6 +49,7 @@ impl ProfileCfg {
             Profile::Balanced => Self {
                 profile: p,
                 max_fps: 10.0,
+                live_fps: 15.0,
                 jpeg_quality: 80,
                 cpu_throttle: 1.0,
                 block_images: false,
@@ -59,6 +63,7 @@ impl ProfileCfg {
             Profile::Full => Self {
                 profile: p,
                 max_fps: 20.0,
+                live_fps: 20.0,
                 jpeg_quality: 85,
                 cpu_throttle: 1.0,
                 block_images: false,

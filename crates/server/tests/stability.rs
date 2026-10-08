@@ -73,9 +73,8 @@ async fn run(profile: Profile) -> (u32, u32, u32) {
     let mut grid: Option<Grid> = None;
     let (mut frames, mut checked, mut wrong) = (0u32, 0u32, 0u32);
     let apply = |m: ServerMsg,
-                     grid: &mut Option<Grid>,
-                     tx: &tokio::sync::mpsc::UnboundedSender<ClientMsg>| match m
-    {
+                 grid: &mut Option<Grid>,
+                 tx: &tokio::sync::mpsc::UnboundedSender<ClientMsg>| match m {
         ServerMsg::FullFrame {
             tab,
             seq,

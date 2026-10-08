@@ -45,6 +45,8 @@ const FLAT: u32 = 1200;
 const FLAT_HALO: u32 = 40000;
 /// Photos and video: show finer texture.
 const FLAT_IMAGE: u32 = 350;
+/// Per-cell mean colour change (squared distance) that counts as "the page changed".
+const CHANGED: u32 = 100;
 /// Flat neighbours this close share a colour (keeps spans long, hides JPEG noise).
 const SNAP: u32 = 150;
 /// A pixel this close to the text colour is ink, not background.
@@ -107,6 +109,75 @@ pub(crate) fn cell_look(q: [Rgb; 4], flat_below: u32) -> (&'static str, Rgb, Rgb
         return (" ", all, all);
     }
     (quad_char(best.1), fg, bg)
+}
+
+/// Fast path for live pixels (video, canvas): recolour only the cells of `rect` from a fresh
+/// screenshot, leaving text drawn over them alone. Same look as the image cells of a full render.
+pub fn recolour_live(grid: &mut Grid, rect: glyph_proto::CellRect, p: &Pixmap, m: &Metrics) {
+    let geom = CellGeom {
+        cw: m.cw,
+        ch: m.ch,
+        sx: p.w as f64 / m.px_w(),
+        sy: p.h as f64 / m.px_h(),
+    };
+    for y in rect.y..(rect.y + rect.h).min(m.rows) {
+        for x in rect.x..(rect.x + rect.w).min(m.cols) {
+            let cur = grid.cell(x, y);
+            let drawn_text = cur.g != " " && !"▘▝▖▗▀▄▌▐▚▞▛▜▙▟█░▒▓".contains(cur.g.as_str());
+            if drawn_text || cur.is_cont() {
+                continue;
+            }
+            let link = cur.style.link;
+            let q = p.quadrants(geom.px_rect(x as i32, y as i32, x as i32 + 1, y as i32 + 1));
+            let (g, fg, bg) = cell_look(q, FLAT_IMAGE);
+            let st = Style {
+                fg,
+                bg,
+                attrs: Attrs::default(),
+                link,
+            };
+            grid.clear(x, y, st);
+            if g != " " {
+                grid.put(x, y, g, st);
+            }
+        }
+    }
+}
+
+/// Did anything outside the live rectangles (and a one-cell margin around them) change between two
+/// screenshots? Cheap per-cell mean comparison: the cue that a text label or layout moved, so the
+/// live fast path has to hand over to a full refresh.
+pub fn changed_outside(
+    a: &Pixmap,
+    b: &Pixmap,
+    live: &[glyph_proto::CellRect],
+    m: &Metrics,
+) -> bool {
+    if (a.w, a.h) != (b.w, b.h) {
+        return true;
+    }
+    let geom = CellGeom {
+        cw: m.cw,
+        ch: m.ch,
+        sx: a.w as f64 / m.px_w(),
+        sy: a.h as f64 / m.px_h(),
+    };
+    let near = |x: u16, y: u16| {
+        live.iter()
+            .any(|r| x + 1 >= r.x && y + 1 >= r.y && x <= r.x + r.w && y <= r.y + r.h)
+    };
+    for y in 0..m.rows {
+        for x in 0..m.cols {
+            if near(x, y) {
+                continue;
+            }
+            let rect = geom.px_rect(x as i32, y as i32, x as i32 + 1, y as i32 + 1);
+            if a.mean_rect(rect).dist2(b.mean_rect(rect)) > CHANGED {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Fill in every cell's colours (and, for non-text cells, the block character) from `p`.
@@ -339,5 +410,75 @@ mod tests {
         ];
         assert_eq!(cell_look(subtle, FLAT).0, " ");
         assert_ne!(cell_look(subtle, FLAT_IMAGE).0, " ");
+    }
+
+    fn solid(w: usize, h: usize, c: Rgb) -> Pixmap {
+        Pixmap::from_rgb(w, h, (0..w * h).flat_map(|_| [c.0, c.1, c.2]).collect())
+    }
+
+    #[test]
+    fn live_recolour_updates_the_rect_and_leaves_text_and_outside_alone() {
+        let m = Metrics {
+            cols: 4,
+            rows: 2,
+            cw: 8.0,
+            ch: 16.0,
+        };
+        let mut g = Grid::new(4, 2, Style::new(Rgb(0, 0, 0), Rgb(255, 255, 255)));
+        g.put(1, 0, "x", Style::new(Rgb(0, 0, 0), Rgb(255, 255, 255)));
+        let red = solid(32, 32, Rgb(200, 0, 0));
+        let rect = glyph_proto::CellRect {
+            x: 0,
+            y: 0,
+            w: 2,
+            h: 1,
+        };
+        recolour_live(&mut g, rect, &red, &m);
+        assert_eq!(
+            g.cell(0, 0).style.bg,
+            Rgb(200, 0, 0),
+            "live cell takes the new colour"
+        );
+        assert_eq!(g.cell(1, 0).g, "x", "text over the video stays");
+        assert_eq!(
+            g.cell(2, 0).style.bg,
+            Rgb(255, 255, 255),
+            "outside the rect is untouched"
+        );
+    }
+
+    #[test]
+    fn change_detection_ignores_the_live_rect_but_sees_a_label() {
+        let m = Metrics {
+            cols: 4,
+            rows: 2,
+            cw: 8.0,
+            ch: 16.0,
+        };
+        let a = solid(32, 32, Rgb(255, 255, 255));
+        let mut px = vec![255u8; 32 * 32 * 3];
+        let paint = |px: &mut Vec<u8>, x0: usize, x1: usize| {
+            for y in 0..16 {
+                for x in x0..x1 {
+                    px[(y * 32 + x) * 3..][..3].copy_from_slice(&[0, 0, 0]);
+                }
+            }
+        };
+        paint(&mut px, 0, 8); // inside the live cell
+        let in_live = Pixmap::from_rgb(32, 32, px.clone());
+        let live = [glyph_proto::CellRect {
+            x: 0,
+            y: 0,
+            w: 1,
+            h: 1,
+        }];
+        assert!(!changed_outside(&a, &in_live, &live, &m));
+        paint(&mut px, 24, 32); // far cell: a label changed
+        assert!(changed_outside(
+            &a,
+            &Pixmap::from_rgb(32, 32, px),
+            &live,
+            &m
+        ));
     }
 }
