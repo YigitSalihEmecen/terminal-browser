@@ -1,3 +1,5 @@
+mod bench;
+
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
@@ -55,6 +57,12 @@ struct ServerArgs {
     /// Chrome/Chromium binary (default: $GLYPH_CHROME or auto-detect).
     #[arg(long)]
     chrome: Option<PathBuf>,
+    /// Extra Chromium command-line flag (repeatable), e.g. --chrome-arg=--in-process-gpu.
+    #[arg(long = "chrome-arg")]
+    chrome_arg: Vec<String>,
+    /// CPU throttle factor for page scripts (1 = off); overrides the profile.
+    #[arg(long)]
+    cpu_throttle: Option<f64>,
 }
 
 #[derive(Args)]
@@ -122,6 +130,39 @@ enum Cmd {
         /// URL or search to open at start.
         url: Option<String>,
     },
+    /// Measure server memory, CPU and bytes streamed on fixed sample pages.
+    Bench {
+        /// Profiles to measure.
+        #[arg(long, value_enum, num_args = 1.., default_values = ["lean", "balanced", "full"])]
+        profile: Vec<ProfileArg>,
+        /// Sample pages: static dense ticker images.
+        #[arg(long, num_args = 1.., default_values = ["static", "dense", "ticker", "images"])]
+        pages: Vec<String>,
+        /// Seconds measured per scenario.
+        #[arg(long, default_value_t = 20)]
+        seconds: u64,
+        /// Seconds to let the page settle before measuring.
+        #[arg(long, default_value_t = 3)]
+        warmup: u64,
+        /// idle, scroll (up/down over the same lines), read (steady scroll through fresh content).
+        #[arg(long, num_args = 1.., default_values = ["idle", "scroll"])]
+        scenario: Vec<String>,
+        #[arg(long, default_value_t = 120)]
+        cols: u16,
+        #[arg(long, default_value_t = 40)]
+        rows: u16,
+        /// Also write the rows as JSON.
+        #[arg(long)]
+        json: Option<PathBuf>,
+        #[arg(long)]
+        chrome: Option<PathBuf>,
+        /// Extra Chromium flag (repeatable); used to compare flag sets.
+        #[arg(long = "chrome-arg")]
+        chrome_arg: Vec<String>,
+        /// CPU throttle override (1 = off).
+        #[arg(long)]
+        cpu_throttle: Option<f64>,
+    },
     /// Inspect configuration: `path`, `default` (prints the documented example) or `check`.
     Config {
         #[arg(value_enum, default_value = "check")]
@@ -181,6 +222,8 @@ async fn main() -> Result<()> {
             let srv = Server::start(ServerCfg {
                 profile: server.profile.into(),
                 chrome: server.chrome,
+                chrome_args: server.chrome_arg,
+                cpu_throttle: server.cpu_throttle,
                 // a local user may open files and data: URLs; remote clients may not (see `serve`)
                 extra_schemes: vec!["file".into(), "data".into()],
                 ..Default::default()
@@ -199,6 +242,38 @@ async fn main() -> Result<()> {
             .await;
             srv.browser.close().await;
             res?;
+        }
+        Cmd::Bench {
+            profile,
+            pages,
+            seconds,
+            warmup,
+            scenario,
+            cols,
+            rows,
+            json,
+            chrome,
+            chrome_arg,
+            cpu_throttle,
+        } => {
+            let rows = bench::run(bench::Opts {
+                profiles: profile.into_iter().map(Into::into).collect(),
+                pages,
+                seconds,
+                warmup,
+                chrome,
+                chrome_args: chrome_arg,
+                cpu_throttle,
+                scenarios: scenario,
+                cols,
+                rows,
+            })
+            .await?;
+            print!("{}", bench::markdown(&rows));
+            if let Some(p) = json {
+                std::fs::write(&p, serde_json::to_string_pretty(&rows)?)
+                    .with_context(|| format!("writing {}", p.display()))?;
+            }
         }
         Cmd::Config { what } => match what {
             ConfigCmd::Path => println!(
@@ -324,6 +399,8 @@ async fn serve(a: ServeArgs) -> Result<()> {
     let srv = Server::start(ServerCfg {
         profile: a.server.profile.into(),
         chrome: a.server.chrome,
+        chrome_args: a.server.chrome_arg,
+        cpu_throttle: a.server.cpu_throttle,
         // remote clients get http/https only; no file:, data:, chrome:, …
         extra_schemes: vec![],
         block_private: !loopback && !a.allow_private_hosts,

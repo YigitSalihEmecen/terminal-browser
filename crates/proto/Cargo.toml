@@ -15,4 +15,9 @@ postcard = { version = "1", default-features = false, features = ["use-std"] }
 zstd = "0.14"
 
 [dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 proptest = "1"
+
+[[bench]]
+name = "codec_diff"
+harness = false

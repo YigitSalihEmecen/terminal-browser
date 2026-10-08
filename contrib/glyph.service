@@ -1,0 +1,20 @@
+# systemd unit for a long-running server.   sudo cp contrib/glyph.service /etc/systemd/system/
+# Put the secret in /etc/glyph/token (chmod 600) and the certificate in /etc/glyph/{cert,key}.pem.
+[Unit]
+Description=glyph remote terminal browser
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=glyph
+ExecStart=/usr/local/bin/glyph serve --bind 0.0.0.0:7878 --token-file /etc/glyph/token --tls-cert /etc/glyph/cert.pem --tls-key /etc/glyph/key.pem --profile lean
+Restart=on-failure
+# Chromium needs user namespaces for its sandbox: do not enable PrivateUsers or RestrictNamespaces.
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+PrivateTmp=yes
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

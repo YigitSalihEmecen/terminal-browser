@@ -38,8 +38,37 @@ const BASE_FLAGS: &[&str] = &[
     "--force-color-profile=srgb",
     "--password-store=basic",
     "--use-mock-keychain",
-    "--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication,CertificateTransparencyComponentUpdater",
 ];
+
+/// Chromium honours only the *last* `--disable-features=` switch, so every feature we want off
+/// (ours, the profile's, the user's) is merged into one.
+const BASE_DISABLED_FEATURES: &[&str] = &[
+    "Translate",
+    "MediaRouter",
+    "OptimizationHints",
+    "AutofillServerCommunication",
+    "CertificateTransparencyComponentUpdater",
+];
+
+/// Merge `--disable-features=a,b` arguments from `args` with `base` into one switch; returns the
+/// switch and the remaining arguments.
+pub fn merge_disabled_features(base: &[&str], args: &[String]) -> (String, Vec<String>) {
+    let mut feats: Vec<String> = base.iter().map(|s| (*s).to_owned()).collect();
+    let mut rest = Vec::new();
+    for a in args {
+        match a.strip_prefix("--disable-features=") {
+            Some(list) => {
+                for f in list.split(',').filter(|f| !f.is_empty()) {
+                    if !feats.iter().any(|x| x == f) {
+                        feats.push(f.to_owned());
+                    }
+                }
+            }
+            None => rest.push(a.clone()),
+        }
+    }
+    (format!("--disable-features={}", feats.join(",")), rest)
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct LaunchOptions {
@@ -60,7 +89,13 @@ pub fn find_chrome(explicit: Option<&Path>) -> Result<PathBuf> {
         return Ok(p.to_path_buf());
     }
     if let Some(p) = std::env::var_os("GLYPH_CHROME") {
-        return Ok(p.into());
+        // An explicit-but-wrong path is an error rather than a silent fall-through to some other
+        // browser (CI uses a bogus path to mean "pretend there is no Chromium").
+        let p = PathBuf::from(p);
+        if !p.exists() {
+            bail!("GLYPH_CHROME={} does not exist", p.display());
+        }
+        return Ok(p);
     }
     const FIXED: &[&str] = &[
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -100,10 +135,16 @@ impl Browser {
         let profile = tempfile::Builder::new()
             .prefix("glyph-profile-")
             .tempdir()?;
+        let mut all_args = opts.extra_args.clone();
+        if let Ok(flags) = std::env::var("GLYPH_CHROME_FLAGS") {
+            all_args.extend(flags.split_whitespace().map(str::to_owned));
+        }
+        let (features, extra) = merge_disabled_features(BASE_DISABLED_FEATURES, &all_args);
         let mut cmd = tokio::process::Command::new(&chrome_path);
         cmd.args(BASE_FLAGS)
+            .arg(features)
             .arg(format!("--user-data-dir={}", profile.path().display()))
-            .args(&opts.extra_args)
+            .args(&extra)
             .arg("about:blank")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -251,4 +292,24 @@ fn spawn_watchdog(chrome_pid: u32, profile: &Path) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disabled_features_are_merged_not_overridden() {
+        let args = vec![
+            "--no-sandbox".to_owned(),
+            "--disable-features=A,B".to_owned(),
+            "--disable-features=B,C".to_owned(),
+        ];
+        let (f, rest) = merge_disabled_features(&["X", "A"], &args);
+        assert_eq!(f, "--disable-features=X,A,B,C");
+        assert_eq!(rest, vec!["--no-sandbox".to_owned()]);
+        let (f, rest) = merge_disabled_features(&["X"], &[]);
+        assert_eq!(f, "--disable-features=X");
+        assert!(rest.is_empty());
+    }
 }

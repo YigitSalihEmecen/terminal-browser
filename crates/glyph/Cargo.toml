@@ -10,6 +10,9 @@ name = "glyph"
 path = "src/main.rs"
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
 glyph-server.workspace = true
 glyph-proto.workspace = true
 anyhow.workspace = true

@@ -104,7 +104,21 @@ impl Screen {
     }
 }
 
+/// Pages that belong to sessions (non-default browser contexts). Chromium's own launch tab, if it
+/// is still being torn down, is in the default context and does not count.
 async fn pages(s: &Server) -> usize {
+    let ctxs: serde_json::Value = s
+        .browser
+        .cdp()
+        .call(None, "Target.getBrowserContexts", serde_json::json!({}))
+        .await
+        .unwrap();
+    let ours: Vec<&str> = ctxs["browserContextIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c.as_str())
+        .collect();
     let v: serde_json::Value = s
         .browser
         .cdp()
@@ -115,7 +129,12 @@ async fn pages(s: &Server) -> usize {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|t| t["type"] == "page")
+        .filter(|t| {
+            t["type"] == "page"
+                && t["browserContextId"]
+                    .as_str()
+                    .is_some_and(|c| ours.contains(&c))
+        })
         .count()
 }
 
@@ -196,7 +215,7 @@ async fn background_tabs_are_discarded_then_revived_on_activation() {
     })
     .await
     .unwrap();
-    let base = pages(&srv).await; // Chromium's own launch tab
+    let base = 0; // only session pages are counted
     let mut h = srv.open_session(caps(false));
     let mut screen = Screen::default();
     h.tx.send(ClientMsg::Navigate {

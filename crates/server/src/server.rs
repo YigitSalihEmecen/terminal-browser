@@ -38,6 +38,8 @@ pub struct ServerCfg {
     pub discard_after_secs: Option<u64>,
     /// Refuse loopback/private-network targets (default for non-loopback `serve`).
     pub block_private: bool,
+    /// Override the profile's CPU throttle (`Emulation.setCPUThrottlingRate`; 1 = off).
+    pub cpu_throttle: Option<f64>,
 }
 
 impl Default for ServerCfg {
@@ -52,6 +54,7 @@ impl Default for ServerCfg {
             chrome_args: vec![],
             discard_after_secs: None,
             block_private: false,
+            cpu_throttle: None,
         }
     }
 }
@@ -59,6 +62,9 @@ impl Default for ServerCfg {
 pub fn profile_for(cfg: &ServerCfg) -> ProfileCfg {
     let mut p = ProfileCfg::for_profile(cfg.profile);
     p.block_private = cfg.block_private;
+    if let Some(t) = cfg.cpu_throttle {
+        p.cpu_throttle = t.max(1.0);
+    }
     p
 }
 
@@ -101,6 +107,21 @@ impl Server {
                 json!({ "discover": true }),
             )
             .await?;
+        // Chromium opens an `about:blank` tab of its own that nobody will ever use; it costs a
+        // renderer process. Closing it is safe: sessions live in their own browser contexts.
+        if let Ok(v) = browser
+            .cdp()
+            .call::<serde_json::Value>(None, "Target.getTargets", json!({}))
+            .await
+        {
+            for t in v["targetInfos"].as_array().into_iter().flatten() {
+                if t["type"] == "page" && t["url"] == "about:blank" {
+                    if let Some(id) = t["targetId"].as_str() {
+                        let _ = browser.close_target(id).await;
+                    }
+                }
+            }
+        }
         let srv = Arc::new(Self {
             browser,
             cfg,

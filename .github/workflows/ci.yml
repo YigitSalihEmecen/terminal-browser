@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # Everything that does not need a browser: unit, property, snapshot (recorded Chromium output),
+  # codec, loopback-WebSocket e2e with a fake page backend. GLYPH_CHROME points at nothing, so the
+  # Chromium-gated tests report SKIP instead of running.
+  test-no-browser:
+    runs-on: ubuntu-latest
+    env:
+      GLYPH_CHROME: /nonexistent/chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  # The full suite against a real Chrome: renderer, live sessions, profiles, reader mode, images.
+  test-chrome:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      - name: run tests
+        env:
+          GLYPH_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          # GitHub's Ubuntu images restrict unprivileged user namespaces, which Chrome's sandbox needs
+          GLYPH_CHROME_FLAGS: ${{ matrix.os == 'ubuntu-latest' && '--no-sandbox' || '' }}
+          INSTA_UPDATE: "no"
+        run: cargo test --workspace -- --test-threads=4
+
+  bench-smoke:
+    needs: test-chrome
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - id: chrome
+        uses: browser-actions/setup-chrome@v1
+      - name: benchmark harness smoke run (numbers on shared runners are not meaningful)
+        env:
+          GLYPH_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          GLYPH_CHROME_FLAGS: --no-sandbox
+        run: cargo run --release -p glyph -- bench --profile lean --pages static --seconds 5 --warmup 2

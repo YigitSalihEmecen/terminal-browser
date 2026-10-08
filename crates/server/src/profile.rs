@@ -11,7 +11,9 @@ pub struct ProfileCfg {
     pub profile: Profile,
     pub max_fps: f32,
     pub jpeg_quality: u8,
-    /// `Emulation.setCPUThrottlingRate` (1 = off).
+    /// `Emulation.setCPUThrottlingRate` (1 = off). Off in every profile: measured on Chrome 154,
+    /// throttling makes an *idle* page burn 55-85 % of a core (the throttle duty-cycles the main
+    /// thread), the opposite of its purpose. Available as `--cpu-throttle` for experiments.
     pub cpu_throttle: f64,
     pub block_images: bool,
     pub block_fonts: bool,
@@ -32,7 +34,7 @@ impl ProfileCfg {
                 profile: p,
                 max_fps: 4.0,
                 jpeg_quality: 30,
-                cpu_throttle: 2.0,
+                cpu_throttle: 1.0,
                 block_images: true,
                 block_fonts: true,
                 block_media: true,
@@ -74,11 +76,16 @@ impl ProfileCfg {
     pub fn chrome_flags(&self) -> Vec<String> {
         let mut f = vec![];
         if !self.site_isolation {
+            // (merged with the launcher's own feature list into a single switch)
             f.push("--disable-features=IsolateOrigins,site-per-process".into());
+            f.push("--disable-site-isolation-trials".into());
             f.push("--process-per-site".into());
         }
         if self.profile == Profile::Lean {
-            f.push("--renderer-process-limit=3".into());
+            // Measured on macOS arm64 (balanced → these): ~-45 MB and one process fewer.
+            f.push("--in-process-gpu".into());
+            f.push("--disable-features=SpareRendererForSitePerProcess,SpareRenderer".into());
+            f.push("--renderer-process-limit=2".into());
             f.push("--js-flags=--max-old-space-size=256".into());
         }
         f

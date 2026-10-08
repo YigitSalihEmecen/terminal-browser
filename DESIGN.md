@@ -16,7 +16,7 @@ two-source idea (structure + pixels) but changes the substrate:
 | Engine | headless Firefox + in-page extension | Chromium over CDP, nothing injected except a ~1 KB script |
 | Structure source | JS DOM walker in the extension | `DOMSnapshot.captureSnapshot` (one CDP call, layout + paint order + text boxes) |
 | Pixel source | canvas draw in extension | `Page.startScreencast` JPEG frames (also the *change detector*) |
-| Remote | rely on SSH/mosh to carry full ANSI frames | WebSocket, cell diffs, zstd, backpressure, token + TLS |
+| Remote | rely on SSH/mosh to carry full ANSI frames | WebSocket, cell diffs, streaming zstd, back-pressure, token + TLS |
 | Cheap mode | none | accessibility-tree text mode, resource profiles |
 
 ## Workspace
@@ -129,36 +129,49 @@ are forwarded by default).
 list items `•`, `[button]`, `[____]` inputs, `[img: alt]`, table rows joined by ` │ `, link
 underlined with the AX `url` property), greedy word-wrap to `cols`, painted into a tall
 virtual grid. The server slices that virtual grid by the text-mode scroll offset, so the
-client stays dumb. No screencast, no screenshot, no snapshot: refresh is driven by load
-events plus a debounced MutationObserver ping from the injected script. Clicking a region
+client stays dumb. No screencast and no pixels. Each rebuild is one AX-tree call plus a `display`-only
+DOMSnapshot (block vs inline); in between, scrolling re-slices the cached document with no CDP
+traffic at all. Rebuilds are driven by load events plus a debounced MutationObserver / `input` ping
+from the injected script. Clicking a region
 resolves its `backendNodeId` to a remote object and calls `.click()`/`.focus()`.
 
 ## Protocol
 
-`serde` + `postcard` payloads inside a 1-byte-flag frame; payloads ≥ 128 B are `zstd`
-(level 3; level configurable). One WebSocket binary message = one frame. Version is checked
-in the Hello exchange; mismatch is a hard error (grapheme widths come from `unicode-width`
-in `glyph-proto`, so the two ends must agree on tables).
+`serde` + `postcard` payloads. One WebSocket binary message = `[flag][payload]`; flag 0 is raw
+postcard, flag 1 is a chunk of a **streaming zstd context** that lives as long as the connection
+(level 3 by default, 128 KiB window). Messages under 96 B are sent raw and are *not* fed to the
+compressor, so both contexts stay in step. Streaming matters: one diff is a few hundred bytes (no
+ratio alone) but consecutive diffs share colours, run headers and text, which the shared window
+exploits. The decoder caps output *while* expanding (32 MiB), so a small hostile message cannot
+inflate into memory. Version is checked in the Hello exchange; mismatch is a hard error (grapheme
+widths come from `unicode-width` in `glyph-proto`, so the two ends must agree on tables).
 
 Cell run encoding mirrors terminal output: a diff is `Vec<Run{y, x, spans}>`,
 `Span{style, text}`; wide-glyph continuation cells are implicit. Runs separated by ≤ 2
-unchanged cells are merged (cheaper than a new run header). Unchanged cells are never sent.
+unchanged cells are merged (cheaper than a new run header). Unchanged cells are never sent. A span
+is split wherever re-segmenting its concatenated text would not give back the cell boundaries
+(regional-indicator pairs, combining marks across cells) — found by a property test.
 
 ```
-C→S  Hello{version, token?, caps{cols,rows,cw,ch,colors,graphics,images}}
-     Key Mouse Resize Navigate Back Forward Reload NewTab CloseTab SwitchTab
-     Scroll Paste Find Ack{seq} SetMode{text|pixel}
-S→C  Hello{version, session} FullFrame{tab,seq,…} Diff{tab,seq,base,runs}
-     Regions{tab,seq,…} Title Url LoadState Tabs Cursor Clipboard Image Error FindResult
+C→S  Hello{version, token?, caps{cols,rows,cell_px,graphics,scheme,images}}
+     Key Mouse Resize Navigate Back Forward Reload Stop NewTab CloseTab SwitchTab
+     Scroll Paste Find Ack{tab,seq} SetMode{text|pixel} ClearFocus Redraw
+S→C  Hello{version, session, profile} FullFrame{tab,seq,…} Diff{tab,seq,base,runs}
+     Regions{tab,seq,…} Title Url LoadState Tabs Cursor Clipboard Image ImageClear
+     FindResult Scroll Mode Error
 ```
 
-**Back-pressure.** The sender keeps `sent_seq`, `acked_seq`. The client acks every frame it
-has *drawn*. If `sent - acked ≥ window` (default 2), the server stops emitting, and keeps
-coalescing: it holds only "the latest grid", and when an ack arrives it diffs *latest vs the
-client's last acked grid* (it retains that grid) and sends one diff. Intermediate frames are
-therefore dropped, never queued. Target fps is adapted: ack RTT ↑ ⇒ fps ↓ (multiplicative
-decrease, additive increase), bounded by the profile's cap. An idle page yields no screencast
-frame, hence no CPU and no bytes.
+**Back-pressure.** The transport is ordered and reliable, so "what the client has" is simply the
+last frame we sent. The outbox keeps `seq` and `acked`. The client acks a frame only **after it has
+been written to the terminal**, so a slow terminal slows the server down. While `seq - acked ≥
+window` (default 2) nothing is sent and only the *latest* offered grid is kept; when an ack frees a
+slot, one diff `last-sent → latest` goes out. Intermediate states are dropped, never queued
+(verified over a real socket, and mutation-checked: removing the window check makes the test fail).
+Sequence numbers are monotonic across tab switches so a stale ack can never acknowledge a newer
+frame. The frame rate adapts to ack round-trip time (multiplicative decrease above 250 ms, additive
+increase below 100 ms) and is capped by the profile. Chromium itself is throttled the same way: its
+screencast frame is acked only after we rendered it (and **every** frame must be acked exactly once,
+or Chromium stalls after two). An idle page yields no frames, hence no CPU and no bytes.
 
 ## Security
 
@@ -184,7 +197,7 @@ frame, hence no CPU and no bytes.
 | images | blocked unless client declared `images` | allowed | allowed |
 | fonts / media / trackers | blocked | fonts blocked, trackers blocked | allowed |
 | max fps | 4 | 10 | 20 |
-| CPU throttle | 2× | 1× | 1× |
+| CPU throttle | off (measured harmful) | off | off |
 | JPEG quality | 30 | 45 | 60 |
 | background tabs | discard after 60 s (URL kept) | freeze | freeze |
 | site isolation | off (flag; documented trade-off) | on | on |
@@ -212,27 +225,54 @@ OSC 52 (works over SSH). Hints: `f` labels every region from the table with home
   backend (so CI needs no Chromium); Chromium-gated e2e when available.
 - criterion: diff, codec, render.
 
-## Risks
+## Risks (status after the build)
 
-1. **CDP drift** (snapshot field names, screencast behaviour). Mitigation: typed structs use
-   `#[serde(default)]`; live smoke tests; Chromium pinned in CI.
-2. **Line density**: <16 px lines collide on one row. Mitigation: text mode; optional
-   `min-line-height` CSS injection.
-3. **Screencast in headless** might not fire for unchanged frames or hidden tabs — we explicitly
-   request a capture on navigation, resize, tab switch.
-4. **SSRF**: a remote authenticated user can make the server fetch internal URLs. Scheme allow-list
-   and literal-IP blocking are partial; deployments that need more should use network egress
-   policy. Stated plainly in the README.
-5. **Width-table skew** between a remote client and server build — version check; spans carry
-   text only, so a skew misaligns one run, not the whole frame.
-6. **Throttling honesty**: CPU throttling lowers peak CPU, not total work. Benchmarks report
-   both.
-7. **Browsh comparison** needs Docker image `browsh/browsh` (amd64 only; emulated on Apple
-   Silicon → numbers are not comparable). Reported as such, or skipped.
+1. **CDP drift** (snapshot field names, screencast behaviour). Typed structs use `#[serde(default)]`;
+   live tests run against real Chromium. Verified on Chrome 154 only.
+2. **Line density**: <16 px lines collide on one row; proportional text is ~10 % longer in cells
+   than in pixels. Mitigations in the renderer (chaining adjacent inline boxes, never overrunning the
+   next box's start); reader mode is the real answer. Still visible on some pages.
+3. **Screencast in headless**: frames can be *older than the DOM snapshot* (observed right after a
+   scroll, drawing the previous page into empty cells). The frame carries its scroll offset; if it
+   disagrees with the snapshot's we take a fresh screenshot. Smooth scrolling is disabled so there
+   are no intermediate frames.
+4. **SSRF**: a remote client makes the server fetch URLs. Done: scheme allow-list, private/loopback/
+   link-local **host literals** refused for documents/XHR/fetch on remote servers. Not done: a DNS
+   name that resolves to a private address is not caught (that needs resolver-level control).
+   Deployments that need more must restrict egress. README says so.
+5. **Width-table skew** between client and server builds: version check; a skew misaligns one run,
+   not the frame. Terminals also disagree with `unicode-width` on some emoji sequences.
+6. **CPU throttling is counter-productive** (measured): `setCPUThrottlingRate` 2× → an idle page uses
+   57 % of a core, 4× → 84 %, versus ~1 % unthrottled. Disabled in all profiles; kept as an opt-in.
+7. **Browsh comparison**: not run. The Docker daemon was not running on the build machine, the
+   image is amd64-only (emulated on Apple Silicon, so numbers would not be comparable), and a native
+   Browsh needs Firefox. Reported as skipped rather than invented.
+8. **Graphics protocols** could only be checked at the byte level (no Kitty/iTerm2/Sixel terminal
+   available to the build); they are the least-verified part of the product.
+
+## Things the implementation taught us (deviations from the first design)
+
+* **Fetch interception needs its own task.** `Page.navigate` does not return until its Document
+  request is resolved; resolving it is done by handling `Fetch.requestPaused`; if the same loop
+  awaits both, it deadlocks. (Found only by running a real session against a blocked URL.)
+* **Memory numbers**: summing per-process RSS over Chromium's ~10 processes overstates real use
+  2-5x. The harness reports macOS `footprint` / Linux PSS and also the naive sum, and counts glyph's
+  own process separately (its children must not be counted twice).
+* **`--disable-features` is last-one-wins** in Chromium; the launcher merges all sources into one
+  switch.
+* **Background colour of text cells**: the "dominant colour" of a cell is wrong when a large glyph
+  out-votes its own background (white-on-dark, 32 px bold). The sample ignores pixels near the known
+  text colour, and neighbouring near-equal colours are snapped together (JPEG noise otherwise breaks
+  every span and wastes bandwidth).
+* **Reader mode needs two sources**: the AX tree has the semantics but not block-vs-inline, so a
+  `display`-only DOMSnapshot is joined on `backendNodeId`.
+* **Lifetime**: `kill_on_drop` does nothing when the parent is SIGKILLed; a detached `sh` watchdog
+  (parent-liveness poll) kills Chromium and removes the profile directory.
 
 ## Assumptions
 
-- Chromium/Chrome ≥ 120 on PATH or `GLYPH_CHROME`; macOS and Linux first-class, Windows best-effort.
-- Cell pixel box 8×16; UTF-8 terminal; truecolor assumed unless `COLORTERM` says otherwise.
-- Config in `$XDG_CONFIG_HOME/glyph/config.toml` (macOS: `~/.config/glyph` too, for dotfile users).
-- Project name `glyph`.
+- Chromium/Chrome ≥ 120 on PATH or `GLYPH_CHROME`; macOS and Linux first-class, Windows best-effort
+  (the watchdog is Unix-only).
+- Cell pixel box 8×16; UTF-8 terminal; truecolor assumed unless `COLORTERM`/`TERM` say otherwise.
+- Config in `$XDG_CONFIG_HOME/glyph/config.toml` (`~/.config/glyph` otherwise).
+- Project name `glyph`; crates `glyph-proto`, `glyph-server`, `glyph-client`, binary `glyph`.

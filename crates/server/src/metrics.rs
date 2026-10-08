@@ -95,6 +95,16 @@ pub fn parse_cpu_time(s: &str) -> Option<f64> {
 /// Sum RSS and CPU time over `root` and all of its descendants (Chromium's renderer, GPU and
 /// utility processes). Uses `ps`, which exists on both macOS and Linux.
 pub fn sample_tree(root: u32) -> Option<ProcSample> {
+    sample(root, true)
+}
+
+/// Just `pid` itself, without descendants (our own process: Chromium is its child and must not be
+/// counted twice).
+pub fn sample_process(pid: u32) -> Option<ProcSample> {
+    sample(pid, false)
+}
+
+fn sample(root: u32, descend: bool) -> Option<ProcSample> {
     let out = Command::new("ps")
         .args(["-axo", "pid=,ppid=,rss=,time="])
         .output()
@@ -125,7 +135,7 @@ pub fn sample_tree(root: u32) -> Option<ProcSample> {
                 s.rss_kb += rss;
                 s.cpu_secs += cpu;
                 s.procs += 1;
-            } else if pp == pid && !in_tree.contains(&p) {
+            } else if descend && pp == pid && !in_tree.contains(&p) {
                 in_tree.push(p);
             }
         }
@@ -162,29 +172,35 @@ fn shared_aware_kb(pids: &[u32]) -> Option<u64> {
     None
 }
 
-/// Sum the `Footprint: 75 MB` headers of `footprint -p …` output, in KB.
+/// Total of `footprint -p …` output in KB. With several processes the tool prints a
+/// `Summary Footprint: N MB` line, which already accounts for shared pages; use it when present
+/// (adding it to the per-process lines would double the answer), else sum the per-process headers.
 pub fn parse_footprint(text: &str) -> Option<u64> {
-    let mut total = 0f64;
-    let mut seen = false;
-    for line in text.lines() {
-        let Some((_, rest)) = line.split_once("Footprint: ") else {
-            continue;
-        };
+    fn kb(rest: &str) -> Option<f64> {
         let mut it = rest.split_whitespace();
-        let (Some(n), Some(unit)) = (it.next().and_then(|n| n.parse::<f64>().ok()), it.next())
-        else {
-            continue;
-        };
-        total += n * match unit {
-            "KB" => 1.0,
-            "MB" => 1024.0,
-            "GB" => 1024.0 * 1024.0,
-            "B" | "bytes" => 1.0 / 1024.0,
-            _ => continue,
-        };
-        seen = true;
+        let n = it.next()?.parse::<f64>().ok()?;
+        Some(
+            n * match it.next()? {
+                "KB" => 1.0,
+                "MB" => 1024.0,
+                "GB" => 1024.0 * 1024.0,
+                "B" | "bytes" => 1.0 / 1024.0,
+                _ => return None,
+            },
+        )
     }
-    seen.then_some(total as u64)
+    if let Some(v) = text
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("Summary Footprint: "))
+        .and_then(kb)
+    {
+        return Some(v as u64);
+    }
+    let sum: Vec<f64> = text
+        .lines()
+        .filter_map(|l| kb(l.split_once("Footprint: ")?.1))
+        .collect();
+    (!sum.is_empty()).then(|| sum.iter().sum::<f64>() as u64)
 }
 
 #[cfg(test)]
@@ -205,6 +221,23 @@ mod tests {
         let t = "====\nGoogle Chrome [1]: 64-bit    Footprint: 75 MB (16384 bytes per page)\n====\nHelper [2]: 64-bit    Footprint: 512 KB (16384 bytes per page)\nGPU [3]: 64-bit    Footprint: 1.5 GB (16384 bytes per page)\n";
         assert_eq!(parse_footprint(t), Some(75 * 1024 + 512 + 1536 * 1024));
         assert_eq!(parse_footprint("nothing here"), None);
+        // the multi-process summary replaces (not adds to) the per-process lines
+        let multi = "A [1]: 64-bit    Footprint: 70 MB (x)\nB [2]: 64-bit    Footprint: 30 MB (x)\nSummary Footprint: 90 MB\n";
+        assert_eq!(parse_footprint(multi), Some(90 * 1024));
+    }
+
+    #[test]
+    fn a_single_process_sample_excludes_children() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let me = std::process::id();
+        let (tree, one) = (sample_tree(me).unwrap(), sample_process(me).unwrap());
+        child.kill().ok();
+        child.wait().ok();
+        assert_eq!(one.procs, 1);
+        assert!(tree.procs > one.procs, "{tree:?} vs {one:?}");
     }
 
     #[test]
