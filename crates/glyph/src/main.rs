@@ -37,6 +37,16 @@ impl From<ProfileArg> for Profile {
     }
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum ConfigCmd {
+    /// Where the config file is looked for.
+    Path,
+    /// Print the documented example config.
+    Default,
+    /// Load the config and report problems.
+    Check,
+}
+
 #[derive(Args)]
 struct ServerArgs {
     /// Resource profile: lean (cheapest), balanced, full.
@@ -112,6 +122,11 @@ enum Cmd {
         /// URL or search to open at start.
         url: Option<String>,
     },
+    /// Inspect configuration: `path`, `default` (prints the documented example) or `check`.
+    Config {
+        #[arg(value_enum, default_value = "check")]
+        what: ConfigCmd,
+    },
     /// Load a URL in headless Chromium and print the page's visible text.
     Dump {
         url: String,
@@ -185,6 +200,26 @@ async fn main() -> Result<()> {
             srv.browser.close().await;
             res?;
         }
+        Cmd::Config { what } => match what {
+            ConfigCmd::Path => println!(
+                "{}",
+                cli.config
+                    .or_else(glyph_client::config::default_path)
+                    .map_or("(no home directory)".into(), |p| p.display().to_string())
+            ),
+            ConfigCmd::Default => print!("{}", include_str!("../../../glyph.example.toml")),
+            ConfigCmd::Check => {
+                let c = Config::load(cli.config).map_err(anyhow::Error::msg)?;
+                if c.warnings.is_empty() {
+                    println!("ok");
+                } else {
+                    for w in &c.warnings {
+                        println!("warning: {w}");
+                    }
+                    std::process::exit(1);
+                }
+            }
+        },
         Cmd::Serve(args) => serve(*args).await?,
         Cmd::Connect {
             addr,

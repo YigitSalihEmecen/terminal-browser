@@ -83,6 +83,7 @@ fn caps() -> ClientCaps {
         cell_px_w: 8,
         cell_px_h: 16,
         graphics: GraphicsProto::None,
+        scheme: Default::default(),
         images: false,
     }
 }

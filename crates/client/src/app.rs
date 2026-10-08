@@ -181,6 +181,13 @@ pub struct App {
     pending_at: Instant,
     ack_due: Option<(TabId, u64)>,
     pub dirty: bool,
+    /// Terminal-graphics images from the server, by id.
+    pub images: std::collections::HashMap<u32, glyph_proto::ImageMsg>,
+    /// Cells changed since the images were last drawn (cell-embedded protocols redraw over them).
+    pub damage: Vec<glyph_proto::CellRect>,
+    pub damage_all: bool,
+    /// Set when everything drawn by the graphics layer must be torn down (tab switch, resize).
+    pub images_reset: bool,
 }
 
 impl App {
@@ -214,6 +221,10 @@ impl App {
             pending_at: Instant::now(),
             ack_due: None,
             dirty: true,
+            images: Default::default(),
+            damage: Vec::new(),
+            damage_all: true,
+            images_reset: false,
         };
         if let Some(w) = warn {
             app.say(format!("config: {w}"));
@@ -271,6 +282,7 @@ impl App {
                 self.seq = seq;
                 self.ack_due = Some((tab, seq));
                 self.selection = None;
+                self.damage_all = true;
             }
             ServerMsg::Diff {
                 tab,
@@ -280,6 +292,15 @@ impl App {
             } => match self.grid.as_mut() {
                 Some(g) if base == self.seq => {
                     apply_runs(g, &runs);
+                    for r in &runs {
+                        let w: usize = r.spans.iter().map(|s| str_width(&s.text)).sum();
+                        self.damage.push(glyph_proto::CellRect {
+                            x: r.x,
+                            y: r.y,
+                            w: w.max(1) as u16,
+                            h: 1,
+                        });
+                    }
                     self.seq = seq;
                     self.ack_due = Some((tab, seq));
                 }
@@ -306,6 +327,8 @@ impl App {
             }
             ServerMsg::Tabs { active, tabs } => {
                 if active != self.active {
+                    self.images.clear();
+                    self.images_reset = true;
                     self.selection = None;
                     self.find_matches = None;
                     self.cursor = None;
@@ -337,7 +360,14 @@ impl App {
             ServerMsg::Scroll { permille, .. } => self.scroll_permille = permille,
             ServerMsg::Mode { mode, .. } => self.text_mode = mode == RenderMode::Text,
             ServerMsg::Error(e) => self.say(e),
-            ServerMsg::Image(_) | ServerMsg::ImageClear { .. } => {}
+            ServerMsg::Image(m) => {
+                self.images.insert(m.id, m);
+            }
+            ServerMsg::ImageClear { ids, .. } => {
+                for id in ids {
+                    self.images.remove(&id);
+                }
+            }
         }
         out
     }
@@ -791,6 +821,8 @@ impl App {
     pub fn on_resize(&mut self, w: u16, h: u16) -> Out {
         self.size = (w, h);
         self.dirty = true;
+        self.images.clear();
+        self.images_reset = true;
         let (cols, rows) = self.content();
         let mut out = Out::default();
         out.msg(ClientMsg::Resize { cols, rows });
@@ -1528,5 +1560,73 @@ mod tests {
         let mut a = app();
         let o = a.on_server(ServerMsg::Clipboard("from page".into()));
         assert_eq!(o.copy, vec!["from page".to_string()]);
+    }
+
+    #[test]
+    fn images_are_stored_cleared_and_reset_on_tab_switch_or_resize() {
+        use glyph_proto::{ImageFormat, ImageMsg};
+        let mut a = app();
+        let img = |id| ImageMsg {
+            tab: 1,
+            id,
+            rect: CellRect {
+                x: 1,
+                y: 1,
+                w: 4,
+                h: 2,
+            },
+            px_w: 32,
+            px_h: 32,
+            format: ImageFormat::Jpeg,
+            data: vec![1, 2, 3],
+        };
+        a.on_server(ServerMsg::Image(img(5)));
+        a.on_server(ServerMsg::Image(img(6)));
+        assert_eq!(a.images.len(), 2);
+        a.on_server(ServerMsg::ImageClear {
+            tab: 1,
+            ids: vec![5],
+        });
+        assert_eq!(a.images.keys().copied().collect::<Vec<_>>(), vec![6]);
+        // switching tabs drops them and asks the graphics layer to tear down placements
+        a.images_reset = false;
+        a.on_server(ServerMsg::Tabs {
+            active: 2,
+            tabs: vec![TabInfo {
+                id: 2,
+                title: String::new(),
+                url: String::new(),
+                loading: false,
+            }],
+        });
+        assert!(a.images.is_empty() && a.images_reset);
+        a.on_server(ServerMsg::Image(img(7)));
+        a.images_reset = false;
+        a.on_resize(100, 40);
+        assert!(a.images.is_empty() && a.images_reset);
+    }
+
+    #[test]
+    fn diffs_record_damage_for_cell_embedded_graphics() {
+        let mut a = app();
+        frame(&mut a, &["hello"]);
+        a.damage.clear();
+        a.damage_all = false;
+        let mut g = Grid::new(80, 21, Style::default());
+        g.put_str(0, 0, "hello", Style::default(), 80);
+        let mut g2 = g.clone();
+        g2.put_str(3, 2, "日本", Style::default(), 80);
+        let runs = glyph_proto::diff_runs(&g, &g2);
+        a.on_server(ServerMsg::Diff {
+            tab: 1,
+            seq: 2,
+            base: 1,
+            runs,
+        });
+        assert_eq!(a.damage.len(), 1);
+        assert_eq!((a.damage[0].x, a.damage[0].y, a.damage[0].w), (3, 2, 4));
+        assert!(!a.damage_all);
+        frame(&mut a, &["x"]);
+        assert!(a.damage_all, "a full frame damages everything");
     }
 }

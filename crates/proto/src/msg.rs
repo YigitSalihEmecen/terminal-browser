@@ -68,6 +68,14 @@ pub enum GraphicsProto {
     Iterm2,
 }
 
+/// What the page should see for `prefers-color-scheme`.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Serialize, Deserialize)]
+pub enum ColorScheme {
+    #[default]
+    Light,
+    Dark,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Serialize, Deserialize)]
 pub enum RenderMode {
     /// DOM snapshot + pixels.
@@ -168,6 +176,7 @@ pub struct ClientCaps {
     pub cell_px_w: u16,
     pub cell_px_h: u16,
     pub graphics: GraphicsProto,
+    pub scheme: ColorScheme,
     /// Client wants image data / cannot live without images (disables lean image blocking).
     pub images: bool,
 }

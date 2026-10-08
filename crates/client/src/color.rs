@@ -51,6 +51,26 @@ impl ColorDepth {
     }
 }
 
+/// `ui.color_scheme`: "dark" / "light", or "auto" = look at `$COLORFGBG` ("fg;bg", bg 0-6 or 8 = dark).
+pub fn color_scheme(config: &str) -> glyph_proto::ColorScheme {
+    scheme_with(config, std::env::var("COLORFGBG").ok().as_deref())
+}
+
+pub fn scheme_with(config: &str, colorfgbg: Option<&str>) -> glyph_proto::ColorScheme {
+    use glyph_proto::ColorScheme::{Dark, Light};
+    match config {
+        "dark" => Dark,
+        "light" => Light,
+        _ => match colorfgbg
+            .and_then(|v| v.rsplit(';').next())
+            .and_then(|bg| bg.parse::<u8>().ok())
+        {
+            Some(0..=6) | Some(8) => Dark,
+            _ => Light,
+        },
+    }
+}
+
 /// Typical xterm RGB values for the 16 ANSI colours.
 const ANSI16: [(Rgb, Color); 16] = [
     (Rgb(0, 0, 0), Color::Black),
@@ -122,6 +142,18 @@ mod tests {
         assert_eq!(rgb_to_16(Rgb(250, 10, 10)), 9);
         assert_eq!(rgb_to_16(Rgb(5, 5, 5)), 0);
         assert_eq!(rgb_to_16(Rgb(250, 250, 250)), 15);
+    }
+
+    #[test]
+    fn color_scheme_follows_config_then_colorfgbg() {
+        use glyph_proto::ColorScheme::{Dark, Light};
+        assert_eq!(scheme_with("dark", None), Dark);
+        assert_eq!(scheme_with("light", Some("15;0")), Light);
+        assert_eq!(scheme_with("auto", Some("15;0")), Dark);
+        assert_eq!(scheme_with("auto", Some("0;15")), Light);
+        assert_eq!(scheme_with("auto", Some("15;default;0")), Dark);
+        assert_eq!(scheme_with("auto", None), Light);
+        assert_eq!(scheme_with("auto", Some("garbage")), Light);
     }
 
     #[test]

@@ -15,6 +15,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::{
     capture,
     cdp::{Event, Session},
+    images::{crop_images, Crop},
     keys::{cdp_mods, key_events},
     pixmap::Pixmap,
     profile::{ProfileCfg, Verdict},
@@ -73,6 +74,8 @@ pub enum TabEvent {
     FindResult(u32),
     Scroll(u16),
     Mode(RenderMode),
+    Image(glyph_proto::ImageMsg),
+    ImageClear(Vec<u32>),
     Crashed,
 }
 
@@ -134,6 +137,9 @@ struct Tab {
     text_focus: Option<usize>,
     find_hl: Option<String>,
     find_hits: Vec<usize>,
+    // terminal-graphics images already delivered: id -> pixel hash
+    images_sent: std::collections::HashMap<u32, u64>,
+    pending_crops: Option<Vec<Crop>>,
 }
 
 /// Attach to `sess` and run the tab until `Close`.
@@ -198,6 +204,8 @@ pub fn spawn(
         text_focus: None,
         find_hl: None,
         find_hits: Vec::new(),
+        images_sent: std::collections::HashMap::new(),
+        pending_crops: None,
     };
     tokio::spawn(async move {
         if let Err(e) = tab.run(start_url).await {
@@ -288,7 +296,10 @@ impl Tab {
         .await?;
         s.send(
             "Emulation.setEmulatedMedia",
-            json!({ "features": [{ "name": "prefers-reduced-motion", "value": "reduce" }] }),
+            json!({ "features": [
+                { "name": "prefers-reduced-motion", "value": "reduce" },
+                { "name": "prefers-color-scheme", "value": if self.cfg.caps.scheme == glyph_proto::ColorScheme::Dark { "dark" } else { "light" } },
+            ] }),
         )
         .await?;
         capture::set_viewport(s, &self.m).await?;
@@ -380,6 +391,7 @@ impl Tab {
             RenderMode::Text => self.render_text().await?,
         };
         self.last_refresh = Instant::now();
+        self.publish_images();
         let m = &self.cfg.metrics;
         m.refreshes
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -440,13 +452,56 @@ impl Tab {
             }
         };
         let m = self.m;
-        tokio::task::spawn_blocking(move || -> Result<Rendered> {
-            let pix = crate::b64::decode(&jpeg_b64)
-                .ok()
-                .and_then(|b| Pixmap::decode_jpeg(&b).ok());
-            Ok(render(&snap, pix.as_ref(), &m))
-        })
-        .await?
+        let wants_gfx =
+            self.cfg.caps.graphics != glyph_proto::GraphicsProto::None && self.cfg.caps.images;
+        let known = if wants_gfx {
+            self.images_sent.clone()
+        } else {
+            Default::default()
+        };
+        let (tab, quality) = (self.id, self.cfg.profile.jpeg_quality.max(55));
+        let (rendered, crops) =
+            tokio::task::spawn_blocking(move || -> Result<(Rendered, Vec<Crop>)> {
+                let pix = crate::b64::decode(&jpeg_b64)
+                    .ok()
+                    .and_then(|b| Pixmap::decode_jpeg(&b).ok());
+                let r = render(&snap, pix.as_ref(), &m);
+                let crops = match (&pix, wants_gfx) {
+                    (Some(p), true) => crop_images(p, &m, tab, &r.images, quality, &known),
+                    _ => Vec::new(),
+                };
+                Ok((r, crops))
+            })
+            .await??;
+        self.pending_crops = Some(crops);
+        Ok(rendered)
+    }
+
+    /// Send new/changed image crops and clear the ones that disappeared.
+    fn publish_images(&mut self) {
+        let Some(crops) = self.pending_crops.take() else {
+            return;
+        };
+        if self.cfg.caps.graphics == glyph_proto::GraphicsProto::None {
+            return;
+        }
+        let now: std::collections::HashMap<u32, u64> =
+            crops.iter().map(|c| (c.id, c.hash)).collect();
+        let gone: Vec<u32> = self
+            .images_sent
+            .keys()
+            .filter(|id| !now.contains_key(id))
+            .copied()
+            .collect();
+        if !gone.is_empty() {
+            let _ = self.out.send((self.id, TabEvent::ImageClear(gone)));
+        }
+        for c in crops {
+            if let Some(msg) = c.msg {
+                let _ = self.out.send((self.id, TabEvent::Image(msg)));
+            }
+        }
+        self.images_sent = now;
     }
 
     /// Reader mode: (re)build the document from the AX tree when stale, then slice the viewport.
@@ -787,6 +842,7 @@ impl Tab {
                 self.m.rows = rows.max(1);
                 capture::set_viewport(&self.sess, &self.m).await?;
                 self.frame = None;
+                self.images_sent.clear(); // the client dropped its placements on resize
                 self.text_stale = true; // reader layout depends on width
                 if self.mode == RenderMode::Pixel {
                     self.sess.send("Page.stopScreencast", json!({})).await?;
@@ -804,6 +860,7 @@ impl Tab {
                         .send("Page.setWebLifecycleState", json!({ "state": "active" }))
                         .await
                         .ok();
+                    self.images_sent.clear();
                     self.frame = None;
                     if self.mode == RenderMode::Pixel {
                         self.start_screencast().await?;
@@ -819,6 +876,7 @@ impl Tab {
                 }
             }
             TabCmd::Refresh => {
+                self.images_sent.clear();
                 self.frame = None;
                 self.mark_dirty();
             }
@@ -834,6 +892,10 @@ impl Tab {
         let _ = self.out.send((self.id, TabEvent::Cursor(None)));
         match m {
             RenderMode::Text => {
+                if !self.images_sent.is_empty() {
+                    let ids = self.images_sent.drain().map(|(id, _)| id).collect();
+                    let _ = self.out.send((self.id, TabEvent::ImageClear(ids)));
+                }
                 self.sess.send("Page.stopScreencast", json!({})).await?;
                 if let Some(sid) = self.pending_ack.take() {
                     let _ = self

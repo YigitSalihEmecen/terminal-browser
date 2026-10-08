@@ -604,6 +604,16 @@ impl Session {
                     });
                 }
             }
+            TabEvent::Image(m) => {
+                if id == self.active {
+                    self.send(ServerMsg::Image(m));
+                }
+            }
+            TabEvent::ImageClear(ids) => {
+                if id == self.active {
+                    self.send(ServerMsg::ImageClear { tab: id, ids });
+                }
+            }
             TabEvent::Mode(mode) => {
                 if id == self.active {
                     self.outbox.force_full();

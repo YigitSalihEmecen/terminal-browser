@@ -14,6 +14,7 @@ fn caps(images: bool) -> ClientCaps {
         cell_px_w: 8,
         cell_px_h: 16,
         graphics: GraphicsProto::None,
+        scheme: Default::default(),
         images,
     }
 }
@@ -27,15 +28,19 @@ fn fixtures() -> PathBuf {
 struct Screen {
     grid: Option<Grid>,
     tabs: Vec<TabInfo>,
+    images: Vec<ImageMsg>,
+    cleared: Vec<u32>,
 }
 
 impl Screen {
-    async fn until(
+    /// Consume messages until `pred` holds or `ms` elapse. Returns whether it held.
+    async fn until_or_timeout(
         &mut self,
         h: &mut glyph_server::SessionHandle,
         mut pred: impl FnMut(&Grid, &[TabInfo]) -> bool,
-    ) {
-        let r = timeout(Duration::from_secs(20), async {
+        ms: u64,
+    ) -> bool {
+        timeout(Duration::from_millis(ms), async {
             loop {
                 if let Some(g) = &self.grid {
                     if pred(g, &self.tabs) {
@@ -66,14 +71,30 @@ impl Screen {
                         let _ = h.tx.send(ClientMsg::Ack { tab, seq });
                     }
                     ServerMsg::Tabs { tabs, .. } => self.tabs = tabs,
+                    ServerMsg::Image(i) => self.images.push(i),
+                    ServerMsg::ImageClear { ids, .. } => self.cleared.extend(ids),
                     ServerMsg::Error(e) => panic!("{e}"),
                     _ => {}
                 }
             }
         })
-        .await;
+        .await
+        .is_ok()
+    }
+
+    /// Keep consuming messages for `ms` (e.g. to see what a quiet period produces).
+    async fn settle(&mut self, h: &mut glyph_server::SessionHandle, ms: u64) {
+        self.until_or_timeout(h, |_, _| false, ms).await;
+    }
+
+    async fn until(
+        &mut self,
+        h: &mut glyph_server::SessionHandle,
+        pred: impl FnMut(&Grid, &[TabInfo]) -> bool,
+    ) {
+        let ok = self.until_or_timeout(h, pred, 20_000).await;
         assert!(
-            r.is_ok(),
+            ok,
             "timed out; screen:\n{}",
             self.grid
                 .as_ref()
@@ -298,5 +319,160 @@ async fn private_network_guard_blocks_without_deadlocking_and_trackers_stay_navi
     screen
         .until(&mut h, |g, _| g.dump_text().contains("Hello glyph"))
         .await;
+    srv.browser.close().await;
+}
+
+#[tokio::test]
+async fn images_are_cropped_for_graphics_clients_and_always_halfblocked() {
+    if find_chrome(None).is_err() {
+        eprintln!("SKIP: no Chromium available");
+        return;
+    }
+    let addr = testserver::serve_dir(fixtures()).await.unwrap();
+    let srv = Server::start(ServerCfg {
+        profile: Profile::Balanced,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let url = format!("http://{addr}/image.html");
+
+    // a Kitty-capable client gets the crop...
+    let kitty = ClientCaps {
+        graphics: GraphicsProto::Kitty,
+        images: true,
+        ..caps(true)
+    };
+    let mut h = srv.open_session(kitty);
+    let mut screen = Screen::default();
+    h.tx.send(ClientMsg::Navigate { url: url.clone() }).unwrap();
+    screen
+        .until(&mut h, |g, _| g.dump_text().contains("Above the image"))
+        .await;
+    // wait for an Image whose pixels are the real (red) ones, not a pre-decode screenshot
+    let is_red = |i: &ImageMsg| {
+        glyph_server::pixmap::Pixmap::decode_jpeg(&i.data).is_ok_and(|p| {
+            let mid = (p.h / 2 * p.w + p.w / 2) * 3;
+            p.rgb[mid] > 150 && p.rgb[mid + 1] < 90 && p.rgb[mid + 2] < 90
+        })
+    };
+    for _ in 0..40 {
+        if screen.images.iter().any(is_red) {
+            break;
+        }
+        screen.settle(&mut h, 250).await;
+    }
+    let im = screen
+        .images
+        .iter()
+        .rev()
+        .find(|i| is_red(i))
+        .unwrap_or_else(|| {
+            panic!(
+                "no red image crop arrived ({} messages)",
+                screen.images.len()
+            )
+        })
+        .clone();
+    assert_eq!(
+        screen
+            .images
+            .iter()
+            .map(|i| i.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        1,
+        "exactly one image placement expected"
+    );
+    // 160×96 css px at (16,48) = 20×6 cells at (2,3)
+    assert_eq!((im.rect.x, im.rect.y, im.rect.w, im.rect.h), (2, 3, 20, 6));
+    assert_eq!((im.px_w, im.px_h), (160, 96));
+    // ...and the grid has the half-block fallback in the same cells, in the image's colour
+    screen.until(&mut h, |g, _| g.cell(10, 5).g == "▀").await;
+    let c = screen.grid.as_ref().unwrap().cell(10, 5).clone();
+    assert!(c.style.fg.0 > 150 && c.style.fg.1 < 90, "{:?}", c.style);
+
+    // a client with no graphics protocol gets no Image messages at all
+    let plain = ClientCaps {
+        graphics: GraphicsProto::None,
+        images: false,
+        ..caps(false)
+    };
+    let mut h2 = srv.open_session(plain);
+    let mut screen2 = Screen::default();
+    h2.tx
+        .send(ClientMsg::Navigate { url: url.clone() })
+        .unwrap();
+    screen2
+        .until(&mut h2, |g, _| g.dump_text().contains("Above the image"))
+        .await;
+    screen2.settle(&mut h2, 1500).await;
+    assert!(screen2.images.is_empty());
+
+    // after Redraw the client's cache is flushed, so the placement is sent again
+    let before = screen.images.len();
+    h.tx.send(ClientMsg::Redraw).unwrap();
+    for _ in 0..40 {
+        if screen.images.len() > before {
+            break;
+        }
+        screen.settle(&mut h, 250).await;
+    }
+    assert!(
+        screen.images.len() > before && screen.images.last().unwrap().id == im.id,
+        "no resend after Redraw"
+    );
+
+    // navigating away clears the placement
+    h.tx.send(ClientMsg::Navigate {
+        url: format!("http://{addr}/basic.html"),
+    })
+    .unwrap();
+    screen
+        .until(&mut h, |g, _| g.dump_text().contains("Hello glyph"))
+        .await;
+    for _ in 0..40 {
+        if screen.cleared.contains(&im.id) {
+            break;
+        }
+        screen.settle(&mut h, 250).await;
+    }
+    assert!(
+        screen.cleared.contains(&im.id),
+        "image placement not cleared: {:?}",
+        screen.cleared
+    );
+    srv.browser.close().await;
+}
+
+#[tokio::test]
+async fn page_sees_the_clients_color_scheme() {
+    if find_chrome(None).is_err() {
+        eprintln!("SKIP: no Chromium available");
+        return;
+    }
+    let addr = testserver::serve_dir(fixtures()).await.unwrap();
+    let srv = Server::start(ServerCfg::default()).await.unwrap();
+    for (scheme, dark) in [(ColorScheme::Dark, true), (ColorScheme::Light, false)] {
+        let mut h = srv.open_session(ClientCaps {
+            scheme,
+            ..caps(false)
+        });
+        let mut screen = Screen::default();
+        h.tx.send(ClientMsg::Navigate {
+            url: format!("http://{addr}/scheme.html"),
+        })
+        .unwrap();
+        screen
+            .until(&mut h, |g, _| g.dump_text().contains("scheme test"))
+            .await;
+        // let the first paint settle, then look at a blank cell of the page background
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        screen.until(&mut h, |_, _| true).await;
+        let g = screen.grid.as_ref().unwrap();
+        let bg = g.cell(40, 10).style.bg;
+        let is_dark = bg.0 < 60 && bg.1 < 60;
+        assert_eq!(is_dark, dark, "{scheme:?}: page background {bg:?}");
+    }
     srv.browser.close().await;
 }

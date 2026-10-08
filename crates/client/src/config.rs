@@ -19,6 +19,9 @@ pub struct Ui {
     pub mouse: bool,
     /// Lines scrolled per mouse-wheel notch.
     pub wheel_lines: i32,
+    /// What pages see for `prefers-color-scheme`: "auto" (follow $COLORFGBG, else light),
+    /// "light" or "dark".
+    pub color_scheme: String,
 }
 
 impl Default for Ui {
@@ -31,6 +34,7 @@ impl Default for Ui {
             color: "auto".into(),
             mouse: true,
             wheel_lines: 3,
+            color_scheme: "auto".into(),
         }
     }
 }
@@ -42,52 +46,115 @@ pub struct KeysCfg {
     pub insert: HashMap<String, String>,
 }
 
-/// Hex colours (`#rrggbb`).
-#[derive(Deserialize, Clone, Debug)]
-#[serde(default, deny_unknown_fields)]
-pub struct ThemeCfg {
-    pub tab_bar_bg: String,
-    pub tab_fg: String,
-    pub tab_active_bg: String,
-    pub tab_active_fg: String,
-    pub omnibox_bg: String,
-    pub omnibox_fg: String,
-    pub status_bg: String,
-    pub status_fg: String,
-    pub progress: String,
-    pub hint_bg: String,
-    pub hint_fg: String,
-    pub accent: String,
-    pub help_bg: String,
-    pub help_fg: String,
+macro_rules! theme {
+    ($($f:ident),* $(,)?) => {
+        /// Hex colours (`#rrggbb`); anything left out comes from `preset`.
+        #[derive(Deserialize, Clone, Debug, Default)]
+        #[serde(default, deny_unknown_fields)]
+        pub struct ThemeCfg {
+            /// "dark" (default), "light" or "high-contrast".
+            pub preset: Option<String>,
+            $(pub $f: Option<String>,)*
+        }
+
+        #[derive(Clone, Copy, Debug)]
+        pub struct Theme { $(pub $f: Rgb,)* }
+    };
 }
 
-impl Default for ThemeCfg {
-    fn default() -> Self {
-        Self {
-            tab_bar_bg: "#181825".into(),
-            tab_fg: "#a6adc8".into(),
-            tab_active_bg: "#313244".into(),
-            tab_active_fg: "#cdd6f4".into(),
-            omnibox_bg: "#1e1e2e".into(),
-            omnibox_fg: "#cdd6f4".into(),
-            status_bg: "#11111b".into(),
-            status_fg: "#bac2de".into(),
-            progress: "#89b4fa".into(),
-            hint_bg: "#f9e2af".into(),
-            hint_fg: "#11111b".into(),
-            accent: "#89b4fa".into(),
-            help_bg: "#1e1e2e".into(),
-            help_fg: "#cdd6f4".into(),
-        }
+theme!(
+    tab_bar_bg,
+    tab_fg,
+    tab_active_bg,
+    tab_active_fg,
+    omnibox_bg,
+    omnibox_fg,
+    status_bg,
+    status_fg,
+    progress,
+    hint_bg,
+    hint_fg,
+    accent,
+    help_bg,
+    help_fg,
+);
+
+impl Theme {
+    pub const PRESETS: &'static [&'static str] = &["dark", "light", "high-contrast"];
+
+    pub fn preset(name: &str) -> Option<Theme> {
+        let c = |h: &str| parse_hex(h).expect("built-in colour");
+        Some(match name {
+            "dark" => Theme {
+                tab_bar_bg: c("#181825"),
+                tab_fg: c("#a6adc8"),
+                tab_active_bg: c("#313244"),
+                tab_active_fg: c("#cdd6f4"),
+                omnibox_bg: c("#1e1e2e"),
+                omnibox_fg: c("#cdd6f4"),
+                status_bg: c("#11111b"),
+                status_fg: c("#bac2de"),
+                progress: c("#89b4fa"),
+                hint_bg: c("#f9e2af"),
+                hint_fg: c("#11111b"),
+                accent: c("#89b4fa"),
+                help_bg: c("#1e1e2e"),
+                help_fg: c("#cdd6f4"),
+            },
+            "light" => Theme {
+                tab_bar_bg: c("#dce0e8"),
+                tab_fg: c("#5c5f77"),
+                tab_active_bg: c("#eff1f5"),
+                tab_active_fg: c("#4c4f69"),
+                omnibox_bg: c("#eff1f5"),
+                omnibox_fg: c("#4c4f69"),
+                status_bg: c("#ccd0da"),
+                status_fg: c("#4c4f69"),
+                progress: c("#1e66f5"),
+                hint_bg: c("#df8e1d"),
+                hint_fg: c("#eff1f5"),
+                accent: c("#1e66f5"),
+                help_bg: c("#eff1f5"),
+                help_fg: c("#4c4f69"),
+            },
+            "high-contrast" => Theme {
+                tab_bar_bg: c("#000000"),
+                tab_fg: c("#ffffff"),
+                tab_active_bg: c("#ffffff"),
+                tab_active_fg: c("#000000"),
+                omnibox_bg: c("#000000"),
+                omnibox_fg: c("#ffffff"),
+                status_bg: c("#000000"),
+                status_fg: c("#ffffff"),
+                progress: c("#00ff00"),
+                hint_bg: c("#ffff00"),
+                hint_fg: c("#000000"),
+                accent: c("#00ffff"),
+                help_bg: c("#000000"),
+                help_fg: c("#ffffff"),
+            },
+            _ => return None,
+        })
     }
 }
 
-#[derive(Deserialize, Clone, Debug, Default)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct ImagesCfg {
     /// "auto" | "kitty" | "sixel" | "iterm2" | "none"
     pub protocol: String,
+    /// Also load images in the `lean` profile when no graphics protocol is available (they are
+    /// then shown as half-blocks). Costs bandwidth; off by default.
+    pub always_load: bool,
+}
+
+impl Default for ImagesCfg {
+    fn default() -> Self {
+        Self {
+            protocol: "auto".into(),
+            always_load: false,
+        }
+    }
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -97,24 +164,6 @@ pub struct FileConfig {
     pub keys: KeysCfg,
     pub theme: ThemeCfg,
     pub images: ImagesCfg,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Theme {
-    pub tab_bar_bg: Rgb,
-    pub tab_fg: Rgb,
-    pub tab_active_bg: Rgb,
-    pub tab_active_fg: Rgb,
-    pub omnibox_bg: Rgb,
-    pub omnibox_fg: Rgb,
-    pub status_bg: Rgb,
-    pub status_fg: Rgb,
-    pub progress: Rgb,
-    pub hint_bg: Rgb,
-    pub hint_fg: Rgb,
-    pub accent: Rgb,
-    pub help_bg: Rgb,
-    pub help_fg: Rgb,
 }
 
 #[derive(Clone, Debug)]
@@ -190,29 +239,42 @@ impl Config {
             }
         }
         let t = &fc.theme;
-        let d = ThemeCfg::default();
-        let mut col = |name: &str, v: &str, fallback: &str| -> Rgb {
-            parse_hex(v).unwrap_or_else(|| {
-                warnings.push(format!("theme.{name}: {v:?} is not #rrggbb"));
-                parse_hex(fallback).expect("default colour")
-            })
+        let mut theme = match t.preset.as_deref() {
+            None => Theme::preset("dark").expect("built-in"),
+            Some(name) => Theme::preset(name).unwrap_or_else(|| {
+                warnings.push(format!(
+                    "theme.preset: unknown {name:?} (use one of {})",
+                    Theme::PRESETS.join(", ")
+                ));
+                Theme::preset("dark").expect("built-in")
+            }),
         };
-        let theme = Theme {
-            tab_bar_bg: col("tab_bar_bg", &t.tab_bar_bg, &d.tab_bar_bg),
-            tab_fg: col("tab_fg", &t.tab_fg, &d.tab_fg),
-            tab_active_bg: col("tab_active_bg", &t.tab_active_bg, &d.tab_active_bg),
-            tab_active_fg: col("tab_active_fg", &t.tab_active_fg, &d.tab_active_fg),
-            omnibox_bg: col("omnibox_bg", &t.omnibox_bg, &d.omnibox_bg),
-            omnibox_fg: col("omnibox_fg", &t.omnibox_fg, &d.omnibox_fg),
-            status_bg: col("status_bg", &t.status_bg, &d.status_bg),
-            status_fg: col("status_fg", &t.status_fg, &d.status_fg),
-            progress: col("progress", &t.progress, &d.progress),
-            hint_bg: col("hint_bg", &t.hint_bg, &d.hint_bg),
-            hint_fg: col("hint_fg", &t.hint_fg, &d.hint_fg),
-            accent: col("accent", &t.accent, &d.accent),
-            help_bg: col("help_bg", &t.help_bg, &d.help_bg),
-            help_fg: col("help_fg", &t.help_fg, &d.help_fg),
-        };
+        macro_rules! over {
+            ($($f:ident),*) => {$(
+                if let Some(v) = &t.$f {
+                    match parse_hex(v) {
+                        Some(c) => theme.$f = c,
+                        None => warnings.push(format!("theme.{}: {v:?} is not #rrggbb", stringify!($f))),
+                    }
+                }
+            )*};
+        }
+        over!(
+            tab_bar_bg,
+            tab_fg,
+            tab_active_bg,
+            tab_active_fg,
+            omnibox_bg,
+            omnibox_fg,
+            status_bg,
+            status_fg,
+            progress,
+            hint_bg,
+            hint_fg,
+            accent,
+            help_bg,
+            help_fg
+        );
         let mut ui = fc.ui;
         if !ui.search.contains("%s") {
             warnings.push("ui.search must contain %s; using the default".into());
@@ -290,5 +352,64 @@ mod tests {
         assert_eq!(parse_hex("#0a0B0c"), Some(Rgb(10, 11, 12)));
         assert_eq!(parse_hex("0a0b0c"), None);
         assert_eq!(parse_hex("#abc"), None);
+    }
+
+    #[test]
+    fn the_shipped_example_file_is_valid_and_equals_the_defaults() {
+        let c =
+            Config::from_toml(include_str!("../../../glyph.example.toml")).expect("example parses");
+        assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+        let d = Config::default();
+        assert_eq!(format!("{:?}", c.ui), format!("{:?}", d.ui));
+        assert_eq!(format!("{:?}", c.theme), format!("{:?}", d.theme));
+        assert_eq!(format!("{:?}", c.images), format!("{:?}", d.images));
+        assert_eq!(
+            c.keymap.list(KeyMode::Normal),
+            d.keymap.list(KeyMode::Normal)
+        );
+    }
+
+    #[test]
+    fn presets_exist_and_overrides_win() {
+        for p in Theme::PRESETS {
+            assert!(Theme::preset(p).is_some(), "{p}");
+        }
+        let c = Config::from_toml("[theme]\npreset = \"light\"\naccent = \"#010203\"").unwrap();
+        assert_eq!(c.theme.accent, Rgb(1, 2, 3));
+        assert_eq!(
+            c.theme.tab_bar_bg,
+            Theme::preset("light").unwrap().tab_bar_bg
+        );
+        let bad = Config::from_toml("[theme]\npreset = \"neon\"").unwrap();
+        assert_eq!(bad.warnings.len(), 1);
+        assert_eq!(bad.theme.accent, Theme::preset("dark").unwrap().accent);
+    }
+
+    #[test]
+    fn every_action_in_the_example_comment_exists() {
+        let text = include_str!("../../../glyph.example.toml");
+        let list: String = text
+            .lines()
+            .skip_while(|l| !l.starts_with("# Actions:"))
+            .take_while(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut n = 0;
+        for w in list
+            .trim_start_matches("# Actions:")
+            .split_whitespace()
+            .filter(|w| *w != "#" && *w != "…")
+        {
+            let w = w.trim_start_matches('#');
+            if w.is_empty() || w.starts_with("tab-9") {
+                continue;
+            }
+            assert!(
+                Action::from_name(w).is_some(),
+                "documented action {w:?} does not exist"
+            );
+            n += 1;
+        }
+        assert!(n > 30, "parsed too few actions ({n})");
     }
 }

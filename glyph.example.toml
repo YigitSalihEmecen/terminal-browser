@@ -1,0 +1,65 @@
+# glyph configuration — copy to ~/.config/glyph/config.toml ($XDG_CONFIG_HOME/glyph/config.toml)
+# Every key is optional; what you leave out keeps the default shown here.
+# Unknown keys are an error (so typos do not silently do nothing).
+
+[ui]
+# Lines moved by j / k / arrow keys, and per mouse-wheel notch.
+scroll_lines = 2
+wheel_lines = 3
+# Omnibox text that is not a URL becomes a search. %s is the URL-encoded query.
+search = "https://duckduckgo.com/?q=%s"
+# Letters used for link hints (f / F / gi), home row first.
+hint_chars = "asdfghjklqwertyuiopzxcvbnm"
+# "auto" | "truecolor" | "256" | "16". auto reads $COLORTERM / $TERM.
+color = "auto"
+# What pages see for prefers-color-scheme: "auto" (follow $COLORFGBG, else light) | "light" | "dark".
+color_scheme = "auto"
+# Capture the mouse (click, wheel, drag-to-copy). Turn off to use your terminal's own selection.
+mouse = true
+# Opened by the "new-tab" action (ctrl-t). "about:blank" opens an empty tab.
+home = "about:blank"
+
+[images]
+# "auto" picks Kitty / iTerm2 / Sixel from the environment (never inside tmux);
+# or force "kitty" | "iterm2" | "sixel" | "none". Without a protocol, images are shown as half-blocks.
+protocol = "auto"
+# The server's `lean` profile blocks images unless the client can show them.
+# true: load them anyway and show half-blocks (costs bandwidth).
+always_load = false
+
+[theme]
+# "dark" | "light" | "high-contrast". Any colour below overrides the preset.
+preset = "dark"
+# tab_bar_bg = "#181825"
+# tab_fg = "#a6adc8"
+# tab_active_bg = "#313244"
+# tab_active_fg = "#cdd6f4"
+# omnibox_bg = "#1e1e2e"
+# omnibox_fg = "#cdd6f4"
+# status_bg = "#11111b"
+# status_fg = "#bac2de"
+# progress = "#89b4fa"
+# hint_bg = "#f9e2af"
+# hint_fg = "#11111b"
+# accent = "#89b4fa"
+# help_bg = "#1e1e2e"
+# help_fg = "#cdd6f4"
+
+# Key bindings. "spec" = "action". Press ? in the browser for the full, current list.
+# Spec syntax: plain characters are keys ("gg" = g then g); <c-d> ctrl-d, <a-x> alt-x, <s-tab>,
+# <esc>, <cr>, <space>, <up>, <f5>, <lt> for "<". Use "none" to unbind.
+# Actions: scroll-down scroll-up scroll-left scroll-right half-page-down half-page-up page-down
+# page-up scroll-top scroll-bottom back forward reload stop omnibox omnibox-current
+# omnibox-new-tab new-tab close-tab next-tab prev-tab first-tab last-tab tab-1 … tab-9 hints
+# hints-new-tab hints-input find find-next find-prev insert visual copy-url copy-title
+# toggle-text-mode help redraw escape quit
+
+[keys.normal]
+# "j" = "scroll-down"
+# "<c-n>" = "scroll-down"
+# "d" = "close-tab"
+# "x" = "none"
+
+[keys.insert]
+# keys that still work while typing into a page field (everything else goes to the page)
+# "<c-l>" = "omnibox"

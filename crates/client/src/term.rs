@@ -170,7 +170,8 @@ fn detect_caps(cfg: &Config, size: (u16, u16)) -> ClientCaps {
         cell_px_w,
         cell_px_h,
         graphics,
-        images: graphics != GraphicsProto::None,
+        scheme: crate::color::color_scheme(&cfg.ui.color_scheme),
+        images: graphics != GraphicsProto::None || cfg.images.always_load,
     }
 }
 
@@ -197,7 +198,9 @@ where
     let mut app = App::new(cfg, size);
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(250));
-    let mut images = crate::gfx::Images::new(caps.graphics);
+    let mut images =
+        crate::gfx::Images::new(caps.graphics, (caps.cell_px_w, caps.cell_px_h), depth);
+    let mut last_error: Option<String> = None;
 
     'main: loop {
         tokio::select! {
@@ -215,8 +218,10 @@ where
                 }
             }
             msg = conn.rx.recv() => {
-                let Some(msg) = msg else { return Err(anyhow!("server closed the connection")) };
-                images.on_server(&msg);
+                let Some(msg) = msg else {
+                    return Err(anyhow!("{}", last_error.unwrap_or_else(|| "server closed the connection".into())));
+                };
+                if let ServerMsg::Error(e) = &msg { last_error = Some(e.clone()); }
                 let out = app.on_server(msg);
                 if apply(out, &conn, &mut terminal, in_tmux)? { break 'main; }
             }
@@ -224,7 +229,9 @@ where
         }
         // fold in everything already waiting before paying for a redraw
         while let Ok(msg) = conn.rx.try_recv() {
-            images.on_server(&msg);
+            if let ServerMsg::Error(e) = &msg {
+                last_error = Some(e.clone());
+            }
             let out = app.on_server(msg);
             if apply(out, &conn, &mut terminal, in_tmux)? {
                 break 'main;
@@ -233,7 +240,10 @@ where
         if app.dirty {
             app.dirty = false;
             terminal.draw(|f| ui::draw(f, &app, depth))?;
-            images.draw(terminal.backend_mut(), &app)?;
+            if std::mem::take(&mut app.images_reset) {
+                images.reset(terminal.backend_mut(), &app)?;
+            }
+            images.draw(terminal.backend_mut(), &mut app)?;
             // ack only once the frame is on the terminal: a slow terminal slows the server down
             if let Some(ack) = app.take_ack() {
                 let _ = conn.tx.send(ack);
