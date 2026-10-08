@@ -1,0 +1,39 @@
+---
+source: crates/server/tests/textmode_fixtures.rs
+expression: g.dump_text()
+---
+  Home Docs About
+
+  # Terminal browsers
+
+  A terminal browser renders the web into a grid of cells. It is fast over
+  slow links, but loses pixel-perfect layout. See the specification for
+  details, or read the very long paragraph that follows to check that word
+  wrapping preserves link regions across line breaks without losing a single
+  word of the text.
+
+  ## Features
+
+  • Links and buttons
+  • Nested lists:
+      ◦ inner one
+      ◦ inner two with a deep link
+  • Images: [img: a tiny logo]
+
+  1. First
+  2. Second
+
+  │ Quoted text that is long enough to need wrapping onto a second line of the
+  │ reader view.
+
+  ────────────────────────────────────────────────────────────────────────────
+
+  Mode  │ Cost
+  ────────────
+  pixel │ high
+  text  │ low
+
+  block one
+  block two
+  inline joined
+  Search [glyph_____________] [x] Remember [ Go ]

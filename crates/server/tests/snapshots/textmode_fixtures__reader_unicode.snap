@@ -1,0 +1,13 @@
+---
+source: crates/server/tests/textmode_fixtures.rs
+expression: g.dump_text()
+---
+  ASCII: abc
+
+  CJK: 日本語の文章 中文 한국어
+
+  Emoji: 😀 👍🏽 🇦🇹 👨‍👩‍👧
+
+  Combining: é ñ ö
+
+  Box: ┌──┐ │██│ └──┘

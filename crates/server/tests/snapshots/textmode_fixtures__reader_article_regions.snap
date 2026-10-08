@@ -1,0 +1,13 @@
+---
+source: crates/server/tests/textmode_fixtures.rs
+expression: r
+---
+#1 Link Some("http://127.0.0.1:53047/") "Home"
+#2 Link Some("http://127.0.0.1:53047/docs") "Docs"
+#3 Link Some("https://example.org/about") "About"
+#4 Link Some("http://127.0.0.1:53047/spec") "the specification"
+#5 Link Some("http://127.0.0.1:53047/deep") "deep link"
+#6 Link Some("http://127.0.0.1:53047/text") "text"
+#7 Input None "Search"
+#8 Checkbox None "Remember"
+#9 Button None "Go"

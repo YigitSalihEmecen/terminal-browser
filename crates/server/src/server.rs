@@ -32,6 +32,10 @@ pub struct ServerCfg {
     pub extra_schemes: Vec<String>,
     /// Unacknowledged frames allowed in flight.
     pub window: u64,
+    /// Extra Chromium command-line flags (tests, `--chrome-arg`).
+    pub chrome_args: Vec<String>,
+    /// Override the profile's background-tab discard delay (seconds; `Some(0)` = never).
+    pub discard_after_secs: Option<u64>,
 }
 
 impl Default for ServerCfg {
@@ -43,6 +47,8 @@ impl Default for ServerCfg {
             ch: 16.0,
             extra_schemes: vec![],
             window: 2,
+            chrome_args: vec![],
+            discard_after_secs: None,
         }
     }
 }
@@ -50,6 +56,7 @@ impl Default for ServerCfg {
 pub struct Server {
     pub browser: Browser,
     pub cfg: ServerCfg,
+    pub metrics: Arc<crate::metrics::Metrics>,
     popups: Mutex<HashMap<String, UnboundedSender<String>>>,
 }
 
@@ -61,9 +68,11 @@ pub struct SessionHandle {
 impl Server {
     pub async fn start(cfg: ServerCfg) -> Result<Arc<Self>> {
         let profile = ProfileCfg::for_profile(cfg.profile);
+        let mut extra_args = profile.chrome_flags();
+        extra_args.extend(cfg.chrome_args.iter().cloned());
         let browser = Browser::launch(&LaunchOptions {
             chrome: cfg.chrome.clone(),
-            extra_args: profile.chrome_flags(),
+            extra_args,
         })
         .await?;
         browser
@@ -77,6 +86,7 @@ impl Server {
         let srv = Arc::new(Self {
             browser,
             cfg,
+            metrics: Arc::default(),
             popups: Mutex::new(HashMap::new()),
         });
 
@@ -153,6 +163,9 @@ struct TabState {
     handle: TabHandle,
     target_id: String,
     info: TabInfo,
+    /// Browser target closed to save memory; revived (reloaded) on activation.
+    discarded: bool,
+    idle_since: Option<std::time::Instant>,
 }
 
 struct Session {
@@ -221,8 +234,10 @@ impl Session {
         }));
         s.open_tab(None, None).await?;
 
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
             tokio::select! {
+                _ = tick.tick() => s.discard_idle(),
                 msg = rx.recv() => match msg {
                     None => break,
                     Some(m) => s.on_client(m).await,
@@ -244,6 +259,7 @@ impl Session {
     }
 
     fn send(&self, m: ServerMsg) {
+        self.srv.metrics.count_msg(&m);
         let _ = self.out.send(m);
     }
 
@@ -287,12 +303,7 @@ impl Session {
         };
         let id = self.next_id;
         self.next_id += 1;
-        let cfg = TabCfg {
-            profile: self.profile.clone(),
-            caps: self.caps,
-            cw: self.srv.cfg.cw,
-            ch: self.srv.cfg.ch,
-        };
+        let cfg = self.tab_cfg();
         if let Some(u) = url.as_deref().filter(|u| !self.srv.is_allowed_url(u)) {
             return Err(anyhow!("navigation to {u} is not allowed"));
         }
@@ -307,22 +318,42 @@ impl Session {
             handle,
             target_id,
             info,
+            discarded: false,
+            idle_since: None,
         });
-        self.activate(id);
+        self.activate(id).await;
         Ok(())
     }
 
-    fn activate(&mut self, id: TabId) {
+    fn tab_cfg(&self) -> TabCfg {
+        TabCfg {
+            profile: self.profile.clone(),
+            caps: self.caps,
+            cw: self.srv.cfg.cw,
+            ch: self.srv.cfg.ch,
+            metrics: self.srv.metrics.clone(),
+        }
+    }
+
+    async fn activate(&mut self, id: TabId) {
         if self.tab(id).is_none() {
             return;
         }
         if self.active != id {
-            if let Some(old) = self.tab(self.active) {
+            if let Some(old) = self.tab_mut(self.active) {
                 old.handle.send(TabCmd::Active(false));
+                old.idle_since = Some(std::time::Instant::now());
             }
-            if let Some(new) = self.tab(id) {
+            if self.tab(id).is_some_and(|t| t.discarded) {
+                if let Err(e) = self.revive(id).await {
+                    self.send(ServerMsg::Error(format!("could not restore tab: {e:#}")));
+                }
+            } else if let Some(new) = self.tab(id) {
                 new.handle.send(TabCmd::Active(true));
             }
+        }
+        if let Some(t) = self.tab_mut(id) {
+            t.idle_since = None;
         }
         self.active = id;
         self.outbox = Outbox::new(id, self.srv.cfg.window, self.outbox.seq());
@@ -338,6 +369,51 @@ impl Session {
             });
             self.send(ServerMsg::Cursor { tab: id, pos: None });
         }
+    }
+
+    /// Lean profile: close the browser target of tabs idle for too long, keep their URL/title.
+    fn discard_idle(&mut self) {
+        let secs = match self.srv.cfg.discard_after_secs {
+            Some(0) => return,
+            Some(s) => s,
+            None => match self.profile.discard_after_secs {
+                Some(s) => s,
+                None => return,
+            },
+        };
+        let limit = std::time::Duration::from_secs(secs);
+        let active = self.active;
+        for t in &mut self.tabs {
+            if t.info.id != active
+                && !t.discarded
+                && t.idle_since.is_some_and(|i| i.elapsed() > limit)
+            {
+                t.handle.send(TabCmd::Close);
+                t.discarded = true;
+                t.info.loading = false;
+                let srv = self.srv.clone();
+                let target = t.target_id.clone();
+                tokio::spawn(async move {
+                    let _ = srv.browser.close_target(&target).await;
+                });
+            }
+        }
+    }
+
+    async fn revive(&mut self, id: TabId) -> Result<()> {
+        let (target_id, sess) = self.srv.browser.new_target(Some(&self.ctx)).await?;
+        let cfg = self.tab_cfg();
+        let url = self
+            .tab(id)
+            .map(|t| t.info.url.clone())
+            .filter(|u| !u.is_empty() && self.srv.is_allowed_url(u));
+        let handle = tab::spawn(id, sess, cfg, self.ev_tx.clone(), url);
+        if let Some(t) = self.tab_mut(id) {
+            t.handle = handle;
+            t.target_id = target_id;
+            t.discarded = false;
+        }
+        Ok(())
     }
 
     async fn close_tab(&mut self, id: TabId) {
@@ -359,10 +435,7 @@ impl Session {
                 .info
                 .id;
             self.active = 0;
-            self.activate(next);
-            if let Some(t) = self.tab(next) {
-                t.handle.send(TabCmd::Active(true));
-            }
+            self.activate(next).await;
         } else {
             self.send_tabs();
         }
@@ -407,7 +480,7 @@ impl Session {
                 }
             }
             CloseTab(id) => self.close_tab(id).await,
-            SwitchTab(id) => self.activate(id),
+            SwitchTab(id) => self.activate(id).await,
             Scroll {
                 unit,
                 dx,
@@ -509,6 +582,12 @@ impl Session {
                         tab: id,
                         permille: p,
                     });
+                }
+            }
+            TabEvent::Mode(mode) => {
+                if id == self.active {
+                    self.outbox.force_full();
+                    self.send(ServerMsg::Mode { tab: id, mode });
                 }
             }
             TabEvent::Crashed => self.send(ServerMsg::Error(format!("tab {id} crashed"))),

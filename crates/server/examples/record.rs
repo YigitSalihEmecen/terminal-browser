@@ -44,6 +44,21 @@ async fn main() -> anyhow::Result<()> {
             out.join(format!("{name}.jpg")),
             capture::screenshot_jpeg(&session, 60).await?,
         )?;
+        // reader mode inputs: AX tree + a display-only snapshot (block vs inline)
+        session
+            .send("Accessibility.enable", serde_json::json!({}))
+            .await?;
+        let ax = session
+            .call_raw("Accessibility.getFullAXTree", serde_json::json!({}))
+            .await?;
+        std::fs::write(out.join(format!("{name}.ax.json")), ax.get())?;
+        let disp = session
+            .call_raw(
+                "DOMSnapshot.captureSnapshot",
+                serde_json::json!({ "computedStyles": ["display"], "includePaintOrder": false, "includeDOMRects": false }),
+            )
+            .await?;
+        std::fs::write(out.join(format!("{name}.display.json")), disp.get())?;
         b.close_target(&target_id).await?;
         println!("recorded {name}");
     }

@@ -1,0 +1,11 @@
+---
+source: crates/server/tests/textmode_fixtures.rs
+expression: g.dump_text()
+---
+  Name [Ada_______________]
+  Search [__________________]
+  [x] Subscribe
+  (•) One ( ) Two
+  Notes [first line________]
+  Pick [Beta ▾]
+  [ Submit ]

@@ -1,0 +1,5 @@
+---
+source: crates/server/tests/textmode_fixtures.rs
+expression: r
+---
+

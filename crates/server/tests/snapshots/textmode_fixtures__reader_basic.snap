@@ -1,0 +1,14 @@
+---
+source: crates/server/tests/textmode_fixtures.rs
+expression: g.dump_text()
+---
+  # Hello glyph
+
+  A paragraph with bold, italic, underline, struck and a link.
+
+  • First item
+  • Second item with another link
+
+  ────────────────────────────────────────────────────────────────────────────
+
+  Dim footer text

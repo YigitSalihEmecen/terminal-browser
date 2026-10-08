@@ -18,8 +18,9 @@ use crate::{
     keys::{cdp_mods, key_events},
     pixmap::Pixmap,
     profile::ProfileCfg,
-    render::{render, Metrics, Rendered},
+    render::{render, Metrics, PageInfo, Rendered},
     snapshot::SnapshotResult,
+    textmode::{self, AxTree, TextDoc},
 };
 
 const AGENT_JS: &str = include_str!("inject.js");
@@ -71,11 +72,13 @@ pub enum TabEvent {
     Clipboard(String),
     FindResult(u32),
     Scroll(u16),
+    Mode(RenderMode),
     Crashed,
 }
 
 #[derive(Clone)]
 pub struct TabCfg {
+    pub metrics: std::sync::Arc<crate::metrics::Metrics>,
     pub profile: ProfileCfg,
     pub caps: ClientCaps,
     pub cw: f64,
@@ -124,6 +127,13 @@ struct Tab {
     cursor: Option<CursorState>,
     mouse: (f64, f64),
     scroll: u16,
+    // text (reader) mode
+    text_doc: Option<TextDoc>,
+    text_stale: bool,
+    text_scroll: usize,
+    text_focus: Option<usize>,
+    find_hl: Option<String>,
+    find_hits: Vec<usize>,
 }
 
 /// Attach to `sess` and run the tab until `Close`.
@@ -165,6 +175,12 @@ pub fn spawn(
         cursor: None,
         mouse: (0.0, 0.0),
         scroll: 0,
+        text_doc: None,
+        text_stale: true,
+        text_scroll: 0,
+        text_focus: None,
+        find_hl: None,
+        find_hits: Vec::new(),
     };
     tokio::spawn(async move {
         if let Err(e) = tab.run(start_url).await {
@@ -315,9 +331,16 @@ impl Tab {
         }
         let rendered = match self.mode {
             RenderMode::Pixel => self.render_pixel().await?,
-            RenderMode::Text => self.render_pixel().await?, // text mode lands in M3
+            RenderMode::Text => self.render_text().await?,
         };
         self.last_refresh = Instant::now();
+        let m = &self.cfg.metrics;
+        m.refreshes
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        m.refresh_micros.fetch_add(
+            t0.elapsed().as_micros() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         let page = rendered.page;
         let _ = self
             .out
@@ -335,7 +358,6 @@ impl Tab {
                 .send("Page.screencastFrameAck", json!({ "sessionId": sid }))
                 .await;
         }
-        tracing::trace!("refresh {:?}", t0.elapsed());
         Ok(())
     }
 
@@ -381,6 +403,59 @@ impl Tab {
         .await?
     }
 
+    /// Reader mode: (re)build the document from the AX tree when stale, then slice the viewport.
+    async fn render_text(&mut self) -> Result<Rendered> {
+        if self.text_stale || self.text_doc.is_none() {
+            let tree_raw = self
+                .sess
+                .call_raw("Accessibility.getFullAXTree", json!({}))
+                .await?;
+            let disp_raw = self
+                .sess
+                .call_raw(
+                    "DOMSnapshot.captureSnapshot",
+                    json!({ "computedStyles": ["display"], "includePaintOrder": false, "includeDOMRects": false }),
+                )
+                .await?;
+            let cols = self.m.cols;
+            let doc = tokio::task::spawn_blocking(move || -> Result<TextDoc> {
+                let tree: AxTree = serde_json::from_str(tree_raw.get())?;
+                let snap: SnapshotResult = serde_json::from_str(disp_raw.get())?;
+                Ok(textmode::build(
+                    &tree,
+                    &textmode::displays_from_snapshot(&snap),
+                    cols,
+                ))
+            })
+            .await??;
+            self.text_doc = Some(doc);
+            self.text_stale = false;
+            self.text_hits_refresh();
+        }
+        let doc = self.text_doc.as_ref().expect("built above");
+        let max_scroll = doc.lines().saturating_sub(self.m.rows as usize);
+        self.text_scroll = self.text_scroll.min(max_scroll);
+        let (grid, regions) = doc.slice(self.text_scroll, self.m.rows, self.find_hl.as_deref());
+        Ok(Rendered {
+            grid,
+            regions,
+            images: Vec::new(),
+            page: PageInfo {
+                scroll_x: 0.0,
+                scroll_y: self.text_scroll as f64,
+                content_w: self.m.cols as f64,
+                content_h: (doc.lines().max(self.m.rows as usize)) as f64,
+            },
+        })
+    }
+
+    fn text_hits_refresh(&mut self) {
+        self.find_hits = match (&self.text_doc, &self.find_hl) {
+            (Some(d), Some(q)) => d.find(q, q.chars().any(char::is_uppercase)),
+            _ => Vec::new(),
+        };
+    }
+
     async fn read_meta(&self) -> Result<Option<(String, String)>> {
         let v: Value = self
             .sess
@@ -400,7 +475,7 @@ impl Tab {
         match e.method.as_str() {
             "Page.screencastFrame" => {
                 if let Ok(f) = e.parse::<Frame>() {
-                    if !self.active {
+                    if !self.active || self.mode == RenderMode::Text {
                         let _ = self
                             .sess
                             .send(
@@ -415,7 +490,14 @@ impl Tab {
                         jpeg_b64: f.data,
                         scroll: Some((f.metadata.sx, f.metadata.sy)),
                     });
-                    self.pending_ack = Some(f.session_id);
+                    // Chromium counts frames in flight: every frame must be acked exactly once,
+                    // including ones we superseded before rendering.
+                    if let Some(old) = self.pending_ack.replace(f.session_id) {
+                        let _ = self
+                            .sess
+                            .send("Page.screencastFrameAck", json!({ "sessionId": old }))
+                            .await;
+                    }
                     self.mark_dirty();
                 }
             }
@@ -450,6 +532,12 @@ impl Tab {
                             self.emit_load();
                         }
                         if matches!(l.name.as_str(), "load" | "DOMContentLoaded" | "commit") {
+                            if self.mode == RenderMode::Text {
+                                self.text_stale = true;
+                                let _ = self
+                                    .eval("window.__glyphWatch && window.__glyphWatch(true)")
+                                    .await;
+                            }
                             self.mark_dirty();
                         }
                     }
@@ -467,6 +555,10 @@ impl Tab {
                 // new document: forget the old pixels so we never mix pages
                 self.frame = None;
                 self.cursor = None;
+                self.text_stale = true;
+                self.text_scroll = 0;
+                self.text_focus = None;
+                self.find_hl = None;
                 let _ = self.out.send((self.id, TabEvent::Cursor(None)));
                 self.mark_dirty();
             }
@@ -520,8 +612,40 @@ impl Tab {
 
     fn on_agent(&mut self, m: AgentMsg) {
         match m.t.as_str() {
+            "caret" if self.mode == RenderMode::Text => {
+                let pre = if m.pw {
+                    "•".repeat(m.pre.chars().count())
+                } else {
+                    m.pre.clone()
+                };
+                let pos = self
+                    .text_focus
+                    .and_then(|ri| self.text_doc.as_ref()?.regions.get(ri))
+                    .and_then(|r| {
+                        let &(y, x, _) = r.rects.first()?;
+                        let row = y
+                            .checked_sub(self.text_scroll)
+                            .filter(|r| *r < self.m.rows as usize)?;
+                        let last = pre.rsplit('\n').next().unwrap_or("");
+                        let line = pre.matches('\n').count();
+                        let col = (self.m.cols as usize)
+                            .saturating_sub(self.text_doc.as_ref()?.margin_width())
+                            / 2
+                            + x
+                            + 1
+                            + str_width(last);
+                        Some(CursorState {
+                            col: col.min(self.m.cols as usize - 1) as u16,
+                            row: (row + line).min(self.m.rows as usize - 1) as u16,
+                        })
+                    });
+                if pos != self.cursor {
+                    self.cursor = pos;
+                    let _ = self.out.send((self.id, TabEvent::Cursor(pos)));
+                }
+            }
             "caret" => {
-                let (cw, ch) = (self.m.cw, self.m.ch);
+                let (cw, ch) = (self.m.cols as f64 * 0.0 + self.m.cw, self.m.ch);
                 let pre = if m.pw {
                     "•".repeat(m.pre.chars().count())
                 } else {
@@ -587,7 +711,25 @@ impl Tab {
                 }
                 self.mark_dirty();
             }
+            TabCmd::Mouse(m) if self.mode == RenderMode::Text => self.text_mouse(m).await?,
             TabCmd::Mouse(m) => self.mouse(m).await?,
+            TabCmd::Scroll { unit, dy, .. } if self.mode == RenderMode::Text => {
+                let rows = self.m.rows as i64;
+                let cur = self.text_scroll as i64;
+                let next = match unit {
+                    ScrollUnit::Lines => cur + dy as i64,
+                    ScrollUnit::Pages => cur + dy as i64 * (rows - 1).max(1),
+                    ScrollUnit::Edge => {
+                        if dy < 0 {
+                            0
+                        } else {
+                            i64::MAX / 2
+                        }
+                    }
+                };
+                self.text_scroll = next.max(0) as usize;
+                self.mark_dirty();
+            }
             TabCmd::Scroll {
                 unit,
                 dx,
@@ -605,24 +747,35 @@ impl Tab {
                 query,
                 forward,
                 case_sensitive,
+            } if self.mode == RenderMode::Text => {
+                self.text_find(&query, forward, case_sensitive);
+            }
+            TabCmd::Find {
+                query,
+                forward,
+                case_sensitive,
             } => self.find(&query, forward, case_sensitive).await?,
             TabCmd::ClearFocus => {
+                self.find_hl = None;
+                self.find_hits.clear();
+                self.text_focus = None;
                 self.eval("document.activeElement && document.activeElement.blur(); getSelection().removeAllRanges()").await?;
                 self.mark_dirty();
             }
             TabCmd::Resize { cols, rows } => {
                 self.m.cols = cols.max(1);
                 self.m.rows = rows.max(1);
-                self.sess.send("Page.stopScreencast", json!({})).await?;
                 capture::set_viewport(&self.sess, &self.m).await?;
                 self.frame = None;
-                self.start_screencast().await?;
+                self.text_stale = true; // reader layout depends on width
+                if self.mode == RenderMode::Pixel {
+                    self.sess.send("Page.stopScreencast", json!({})).await?;
+                    self.start_screencast().await?;
+                }
                 self.mark_dirty();
             }
-            TabCmd::SetMode(m) => {
-                self.mode = m;
-                self.mark_dirty();
-            }
+            TabCmd::SetMode(m) if m != self.mode => self.set_mode(m).await?,
+            TabCmd::SetMode(_) => {}
             TabCmd::SetFps(f) => self.fps = f.clamp(0.5, self.cfg.profile.max_fps),
             TabCmd::Active(a) => {
                 self.active = a;
@@ -632,7 +785,9 @@ impl Tab {
                         .await
                         .ok();
                     self.frame = None;
-                    self.start_screencast().await?;
+                    if self.mode == RenderMode::Pixel {
+                        self.start_screencast().await?;
+                    }
                     self.mark_dirty();
                 } else {
                     self.sess.send("Page.stopScreencast", json!({})).await?;
@@ -650,6 +805,123 @@ impl Tab {
             TabCmd::Close => {}
         }
         Ok(())
+    }
+
+    async fn set_mode(&mut self, m: RenderMode) -> Result<()> {
+        self.mode = m;
+        self.frame = None;
+        self.cursor = None;
+        let _ = self.out.send((self.id, TabEvent::Cursor(None)));
+        match m {
+            RenderMode::Text => {
+                self.sess.send("Page.stopScreencast", json!({})).await?;
+                if let Some(sid) = self.pending_ack.take() {
+                    let _ = self
+                        .sess
+                        .send("Page.screencastFrameAck", json!({ "sessionId": sid }))
+                        .await;
+                }
+                self.sess.send("Accessibility.enable", json!({})).await?;
+                self.eval("window.__glyphWatch && window.__glyphWatch(true)")
+                    .await?;
+                self.text_stale = true;
+                self.text_scroll = 0;
+            }
+            RenderMode::Pixel => {
+                self.eval("window.__glyphWatch && window.__glyphWatch(false)")
+                    .await?;
+                self.sess
+                    .send("Accessibility.disable", json!({}))
+                    .await
+                    .ok();
+                self.start_screencast().await?;
+                self.text_doc = None;
+            }
+        }
+        let _ = self.out.send((self.id, TabEvent::Mode(m)));
+        self.mark_dirty();
+        Ok(())
+    }
+
+    /// Reader-mode click: find the region under the cell and activate its DOM node.
+    async fn text_mouse(&mut self, m: MouseEvent) -> Result<()> {
+        if m.kind != MouseKind::Up(MouseButton::Left) {
+            return Ok(());
+        }
+        let Some(doc) = &self.text_doc else {
+            return Ok(());
+        };
+        let y = self.text_scroll + m.row as usize;
+        let margin = doc.margin_width();
+        let hit = doc.regions.iter().enumerate().find(|(_, r)| {
+            r.rects.iter().any(|&(ry, rx, rw)| {
+                ry == y && (m.col as usize) >= margin + rx && (m.col as usize) < margin + rx + rw
+            })
+        });
+        let Some((ri, r)) = hit else { return Ok(()) };
+        let backend = r.backend;
+        let text_entry = matches!(
+            r.kind,
+            glyph_proto::RegionKind::Input | glyph_proto::RegionKind::TextArea
+        );
+        self.text_focus = text_entry.then_some(ri);
+        if backend < 0 {
+            return Ok(());
+        }
+        #[derive(Deserialize)]
+        struct Obj {
+            object: O,
+        }
+        #[derive(Deserialize)]
+        struct O {
+            #[serde(rename = "objectId")]
+            id: String,
+        }
+        let o: Obj = self
+            .sess
+            .call("DOM.resolveNode", json!({ "backendNodeId": backend }))
+            .await?;
+        self.sess
+            .send(
+                "Runtime.callFunctionOn",
+                json!({
+                    "objectId": o.object.id,
+                    "functionDeclaration": "function(){ if (this.focus) this.focus(); if (this.click) this.click(); }",
+                    "silent": true,
+                }),
+            )
+            .await?;
+        self.text_stale = true;
+        self.mark_dirty();
+        Ok(())
+    }
+
+    /// Find in reader mode: search the document text, scroll to the next/previous hit.
+    fn text_find(&mut self, q: &str, forward: bool, case: bool) {
+        self.find_hl = (!q.is_empty()).then(|| q.to_owned());
+        let Some(doc) = &self.text_doc else { return };
+        let hits = doc.find(q, case);
+        let _ = self
+            .out
+            .send((self.id, TabEvent::FindResult(hits.len() as u32)));
+        let cur = self.text_scroll;
+        let next = if forward {
+            hits.iter()
+                .copied()
+                .find(|&y| y > cur || (y == cur && cur == 0))
+                .or_else(|| hits.first().copied())
+        } else {
+            hits.iter()
+                .rev()
+                .copied()
+                .find(|&y| y < cur)
+                .or_else(|| hits.last().copied())
+        };
+        if let Some(y) = next {
+            self.text_scroll = y.saturating_sub(2);
+        }
+        self.find_hits = hits;
+        self.mark_dirty();
     }
 
     async fn navigate(&mut self, url: &str) {

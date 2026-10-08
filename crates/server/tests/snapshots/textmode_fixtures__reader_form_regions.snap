@@ -1,0 +1,12 @@
+---
+source: crates/server/tests/textmode_fixtures.rs
+expression: r
+---
+#1 Input None "Name"
+#2 Input None "Search"
+#3 Checkbox None "Subscribe"
+#4 Radio None "One Two"
+#5 Radio None ""
+#6 TextArea None "Notes"
+#7 Select None "Pick"
+#8 Button None "Submit"

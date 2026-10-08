@@ -32,6 +32,21 @@ fn load(name: &str, pixels: bool) -> Rendered {
     render(&snap, pix.as_ref(), &M)
 }
 
+/// Recorded pages embed the ephemeral port of the recording server; make snapshots independent of it.
+fn stable(s: String) -> String {
+    let mut out = String::new();
+    let mut rest = s.as_str();
+    while let Some(i) = rest.find("127.0.0.1:") {
+        out.push_str(&rest[..i + "127.0.0.1:".len()]);
+        rest = &rest[i + "127.0.0.1:".len()..];
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        out.push_str("PORT");
+        rest = &rest[digits..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn hex(c: glyph_proto::Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", c.0, c.1, c.2)
 }
@@ -84,7 +99,7 @@ macro_rules! fixture_snapshots {
             insta::assert_snapshot!(concat!(stringify!($name), "_text"), r.grid.dump_text());
             insta::assert_snapshot!(concat!(stringify!($name), "_styles"), styles(&r.grid));
             let regions: String = r.regions.iter().map(|g| format!("#{} {:?} {:?} {:?} {:?}\n", g.id, g.kind, g.rects, g.href, g.label)).collect();
-            insta::assert_snapshot!(concat!(stringify!($name), "_regions"), regions);
+            insta::assert_snapshot!(concat!(stringify!($name), "_regions"), stable(regions));
         }
     )*};
 }

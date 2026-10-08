@@ -92,16 +92,21 @@ impl ProfileCfg {
             p.push(json!({ "resourceType": "Media" }));
         }
         if self.block_trackers {
-            p.extend(
-                TRACKER_DOMAINS
-                    .iter()
-                    .map(|d| json!({ "urlPattern": format!("*://*.{d}/*") })),
-            );
-            p.extend(
-                TRACKER_DOMAINS
-                    .iter()
-                    .map(|d| json!({ "urlPattern": format!("*://{d}/*") })),
-            );
+            for d in TRACKER_DOMAINS {
+                // with and without an explicit port, apex and subdomains
+                for pat in [
+                    format!("*://{d}/*"),
+                    format!("*://*.{d}/*"),
+                    format!("*://{d}:*/*"),
+                    format!("*://*.{d}:*/*"),
+                ] {
+                    p.push(json!({ "urlPattern": pat }));
+                }
+            }
+        }
+        if self.block_trackers || self.block_images {
+            // browsers fetch a favicon nobody here will ever see
+            p.push(json!({ "urlPattern": "*://*/favicon.ico" }));
         }
         p
     }

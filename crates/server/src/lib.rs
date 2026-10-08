@@ -5,6 +5,7 @@ pub mod browser;
 pub mod capture;
 pub mod cdp;
 pub mod keys;
+pub mod metrics;
 pub mod outbox;
 pub mod page;
 pub mod pixmap;
@@ -14,6 +15,7 @@ pub mod server;
 pub mod snapshot;
 pub mod tab;
 pub mod testserver;
+pub mod textmode;
 
 pub use server::{Server, ServerCfg, SessionHandle};
 

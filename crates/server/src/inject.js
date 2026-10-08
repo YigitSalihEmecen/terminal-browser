@@ -43,10 +43,13 @@
 
   // text mode: ping when the DOM changes (debounced); enabled by the server via __glyphWatch(true)
   let mo = null, dirty = 0;
+  const ping = (ms) => { if (!dirty) dirty = setTimeout(() => { dirty = 0; send({ t: 'dirty' }); }, ms); };
   window.__glyphWatch = (on) => {
     if (mo) { mo.disconnect(); mo = null; }
     if (!on) return;
-    mo = new MutationObserver(() => { if (!dirty) dirty = setTimeout(() => { dirty = 0; send({ t: 'dirty' }); }, 400); });
+    mo = new MutationObserver(() => ping(400));
     mo.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
   };
+  // typing changes input.value without any DOM mutation
+  document.addEventListener('input', () => { if (mo) ping(120); }, true);
 })();

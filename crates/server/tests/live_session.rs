@@ -17,6 +17,8 @@ struct Rig {
     active: TabId,
     cursor: Option<CursorState>,
     title: String,
+    mode: RenderMode,
+    find: Option<u32>,
 }
 
 impl Rig {
@@ -31,6 +33,8 @@ impl Rig {
             active: 0,
             cursor: None,
             title: String::new(),
+            mode: RenderMode::Pixel,
+            find: None,
         }
     }
 
@@ -67,7 +71,9 @@ impl Rig {
                 self.tabs = tabs;
             }
             ServerMsg::Cursor { pos, .. } => self.cursor = pos,
+            ServerMsg::Mode { mode, .. } => self.mode = mode,
             ServerMsg::Title { title, .. } => self.title = title,
+            ServerMsg::FindResult { matches, .. } => self.find = Some(matches),
             ServerMsg::Error(e) => panic!("server error: {e}"),
             _ => {}
         }
@@ -102,6 +108,10 @@ impl Rig {
                 self.tabs
             );
         }
+    }
+
+    fn url_changed_to(&self, u: &str) -> bool {
+        self.tabs.iter().any(|t| t.url == u)
     }
 
     fn text(&self) -> String {
@@ -315,6 +325,115 @@ async fn target_blank_link_opens_a_new_active_tab() {
         r.tabs.len() == 1 && r.active == first && r.text().contains("open form in new tab")
     })
     .await;
+}
+
+#[tokio::test]
+async fn reader_mode_renders_navigates_scrolls_finds_and_returns() {
+    if find_chrome(None).is_err() {
+        eprintln!("SKIP: no Chromium available");
+        return;
+    }
+    let addr =
+        testserver::serve_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures"))
+            .await
+            .unwrap();
+    let srv = Server::start(ServerCfg::default()).await.unwrap();
+    let mut rig = Rig::new(srv.open_session(ClientCaps { rows: 12, ..caps() }));
+    rig.h
+        .tx
+        .send(ClientMsg::Navigate {
+            url: format!("http://{addr}/article.html"),
+        })
+        .unwrap();
+    rig.until("pixel page", |r| r.text().contains("Terminal"))
+        .await;
+
+    rig.h.tx.send(ClientMsg::SetMode(RenderMode::Text)).unwrap();
+    rig.until("reader view", |r| {
+        r.mode == RenderMode::Text && r.text().contains("# Terminal browsers")
+    })
+    .await;
+    assert!(rig.text().contains("Home Docs About"), "{}", rig.text());
+
+    // scroll by lines, then to the end
+    rig.h
+        .tx
+        .send(ClientMsg::Scroll {
+            unit: ScrollUnit::Pages,
+            dx: 0,
+            dy: 1,
+            col: 0,
+            row: 0,
+        })
+        .unwrap();
+    rig.until("page down", |r| !r.text().contains("# Terminal browsers"))
+        .await;
+    rig.h
+        .tx
+        .send(ClientMsg::Scroll {
+            unit: ScrollUnit::Edge,
+            dx: 0,
+            dy: 1,
+            col: 0,
+            row: 0,
+        })
+        .unwrap();
+    rig.until("end of document", |r| r.text().contains("Remember"))
+        .await;
+
+    // find jumps to the match and reports the count
+    rig.h
+        .tx
+        .send(ClientMsg::Scroll {
+            unit: ScrollUnit::Edge,
+            dx: 0,
+            dy: -1,
+            col: 0,
+            row: 0,
+        })
+        .unwrap();
+    rig.until("top", |r| r.text().contains("# Terminal browsers"))
+        .await;
+    rig.h
+        .tx
+        .send(ClientMsg::Find {
+            query: "quoted".into(),
+            forward: true,
+            case_sensitive: false,
+        })
+        .unwrap();
+    rig.until("find scrolled to the quote", |r| {
+        r.find == Some(1) && r.text().contains("Quoted text")
+    })
+    .await;
+
+    // clicking a link in reader mode navigates the real page
+    rig.h
+        .tx
+        .send(ClientMsg::Scroll {
+            unit: ScrollUnit::Edge,
+            dx: 0,
+            dy: -1,
+            col: 0,
+            row: 0,
+        })
+        .unwrap();
+    rig.until("top again", |r| r.text().contains("Home Docs About"))
+        .await;
+    let docs = rig.region("Docs");
+    rig.click(docs.rects[0].x + 1, docs.rects[0].y);
+    rig.until("navigated (docs 404 page text)", |r| {
+        r.url_changed_to(&format!("http://{addr}/docs"))
+    })
+    .await;
+
+    // back to pixel mode
+    rig.h
+        .tx
+        .send(ClientMsg::SetMode(RenderMode::Pixel))
+        .unwrap();
+    rig.until("pixel again", |r| r.mode == RenderMode::Pixel)
+        .await;
 }
 
 #[tokio::test]
