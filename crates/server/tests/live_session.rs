@@ -282,6 +282,42 @@ async fn browse_click_type_scroll_tabs() {
 }
 
 #[tokio::test]
+async fn target_blank_link_opens_a_new_active_tab() {
+    if find_chrome(None).is_err() {
+        eprintln!("SKIP: no Chromium available");
+        return;
+    }
+    let addr =
+        testserver::serve_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures"))
+            .await
+            .unwrap();
+    let srv = Server::start(ServerCfg::default()).await.unwrap();
+    let mut rig = Rig::new(srv.open_session(caps()));
+    rig.h
+        .tx
+        .send(ClientMsg::Navigate {
+            url: format!("http://{addr}/interact.html"),
+        })
+        .unwrap();
+    rig.until("loaded", |r| r.text().contains("open form in new tab"))
+        .await;
+    let link = rig.region("open form in new tab");
+    rig.click(link.rects[0].x + 1, link.rects[0].y);
+    rig.until("popup adopted as active tab", |r| {
+        r.tabs.len() == 2 && r.text().contains("Subscribe")
+    })
+    .await;
+    assert_eq!(rig.active, rig.tabs[1].id);
+    // closing the popup returns to the opener
+    let (first, second) = (rig.tabs[0].id, rig.tabs[1].id);
+    rig.h.tx.send(ClientMsg::CloseTab(second)).unwrap();
+    rig.until("back on opener", |r| {
+        r.tabs.len() == 1 && r.active == first && r.text().contains("open form in new tab")
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn idle_page_sends_nothing() {
     if find_chrome(None).is_err() {
         eprintln!("SKIP: no Chromium available");
